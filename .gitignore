@@ -1,0 +1,8 @@
+CI/http/CI_build/
+CI/grpc/CI_build/
+*.o
+*.so
+*.dylib
+*.dll
+build/
+.DS_Store
