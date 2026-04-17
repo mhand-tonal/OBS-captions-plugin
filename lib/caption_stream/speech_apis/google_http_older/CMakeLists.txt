@@ -27,20 +27,20 @@ set(SPEECH_API_SOURCES
 
 include_directories(${PLIBSYS_DIR}/src)
 
-add_library(speech_api_stream STATIC
+add_library(speech_api_google_http STATIC
         ${SPEECH_API_SOURCES}
         )
 
 if (UNIX AND NOT APPLE)
     target_compile_options(plibsysstatic PRIVATE "-fPIC")
-    target_compile_options(speech_api_stream PRIVATE "-fPIC")
+    target_compile_options(speech_api_google_http PRIVATE "-fPIC")
 endif ()
 
-target_include_directories(speech_api_stream PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR})
-
-target_include_directories(speech_api_stream PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/json11
+target_include_directories(speech_api_google_http PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
         ${PLIBSYS_DIR}/src)
 
-target_link_libraries(speech_api_stream plibsysstatic)
+target_include_directories(speech_api_google_http PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../thirdparty/json11)
+
+target_link_libraries(speech_api_google_http plibsysstatic)

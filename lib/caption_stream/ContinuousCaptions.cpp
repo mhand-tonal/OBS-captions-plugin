@@ -20,6 +20,22 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "ContinuousCaptions.h"
 #include "log.h"
 
+#include "speech_apis/google_http_older/CaptionStream.h"
+#include "speech_apis/deepgram_websocket/CaptionStream.h"
+
+static std::shared_ptr<CaptionStream> make_caption_stream(SpeechApiProvider provider,
+                                                           const CaptionStreamSettings &settings) {
+    switch (provider) {
+        case SPEECH_API_DEEPGRAM_WEBSOCKET:
+            debug_log("creating DeepgramCaptionStream");
+            return std::make_shared<DeepgramCaptionStream>(settings);
+        case SPEECH_API_GOOGLE_HTTP:
+        default:
+            debug_log("creating GoogleHttpCaptionStream");
+            return std::make_shared<GoogleHttpCaptionStream>(settings);
+    }
+}
+
 ContinuousCaptions::ContinuousCaptions(
         ContinuousCaptionStreamSettings settings
 ) :
@@ -85,7 +101,7 @@ bool ContinuousCaptions::queue_audio_data(const char *data, const uint data_size
 void ContinuousCaptions::start_prepared() {
     debug_log("starting second prepared connection");
     clear_prepared();
-    prepared_stream = std::make_shared<CaptionStream>(settings.stream_settings);
+    prepared_stream = make_caption_stream(settings.provider, settings.stream_settings);
     if (!prepared_stream->start(prepared_stream)) {
         error_log("FAILED starting prepared connection");
     }
@@ -136,7 +152,7 @@ void ContinuousCaptions::cycle_streams() {
         current_stream->on_caption_cb_handle.set(cb);
     } else {
         debug_log("cycling streams, creating new connection");
-        current_stream = std::make_shared<CaptionStream>(settings.stream_settings);
+        current_stream = make_caption_stream(settings.provider, settings.stream_settings);
         current_stream->on_caption_cb_handle.set(cb);
         if (!current_stream->start(current_stream))
             error_log("FAILED starting new connection");

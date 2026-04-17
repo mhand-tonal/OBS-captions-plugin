@@ -2,28 +2,17 @@ project(caption_stream)
 
 message("BUILD_SHARED_LIBS: ${BUILD_SHARED_LIBS}")
 
-if (SPEECH_API_GOOGLE_GRPC_V1 AND SPEECH_API_GOOGLE_HTTP_OLD)
-    message(FATAL_ERROR "both SPEECH_API_GOOGLE_GRPC_V1 AND SPEECH_API_GOOGLE_HTTP_OLD given, nope")
-endif ()
-
 include_directories("thirdparty")
 include_directories(".")
 
-if (SPEECH_API_GOOGLE_GRPC_V1)
-    message("using SPEECH_API_GOOGLE_GRPC_V1!")
-    add_subdirectory(speech_apis/grpc_speech_api)
-elseif (SPEECH_API_GOOGLE_HTTP_OLD)
-    message("using SPEECH_API_GOOGLE_HTTP_OLD!")
-    add_subdirectory(speech_apis/google_http_older)
-else ()
-    message("using SPEECH_API_GOOGLE_HTTP_OLD by default")
-    add_subdirectory(speech_apis/google_http_older)
-    #    message(FATAL_ERROR "either SPEECH_API_GOOGLE_GRPC_V1 or SPEECH_API_GOOGLE_HTTP_OLD required")
-endif ()
+# Always build both speech API backends for runtime selection
+add_subdirectory(speech_apis/google_http_older)
+add_subdirectory(speech_apis/deepgram_websocket)
 
 set(caption_stream_SOURCES
         utils.h
         ContinuousCaptions.cpp
+        thirdparty/json11/json11.cpp
         )
 
 set(caption_stream_HEADERS
@@ -31,18 +20,18 @@ set(caption_stream_HEADERS
         thirdparty/cameron314/blockingconcurrentqueue.h
         utils.h
         CaptionResult.h
+        CaptionStream.h
         ContinuousCaptions.h
         )
 
 add_library(caption_stream STATIC
-        ${SPEECH_API_SOURCES}
         ${caption_stream_SOURCES}
         ${caption_stream_HEADERS}
         )
 
 target_include_directories(caption_stream PUBLIC ./)
 target_include_directories(caption_stream PUBLIC thirdparty/)
-target_link_libraries(caption_stream speech_api_stream)
+target_link_libraries(caption_stream speech_api_google_http speech_api_deepgram_ws)
 
 if (WIN32 AND NOT BUILD_SHARED_LIBS)
     message(BUILD_SHARED_LIBS: setting win flags)
@@ -63,22 +52,3 @@ endif ()
 if (UNIX AND NOT APPLE)
     target_compile_options(caption_stream PRIVATE "-fPIC")
 endif ()
-
-#if (DEVMODE)
-#    if (DEFINED QT_DEP_DIR AND NOT "${QT_DEP_DIR}" STREQUAL "")
-#        find_package(Qt5 REQUIRED COMPONENTS Widgets Core
-#                PATHS ${QT_DEP_DIR}
-#                NO_DEFAULT_PATH
-#                )
-#    else ()
-#        find_package(Qt5 REQUIRED COMPONENTS Widgets Core)
-#    endif ()
-#
-#    add_executable(caption_stream_dev_main
-#            dev/main.cpp
-#            )
-#    target_link_libraries(caption_stream_dev_main
-#            caption_stream
-#            Qt5::Core
-#            )
-#endif ()

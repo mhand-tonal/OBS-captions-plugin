@@ -15,46 +15,47 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ******************************************************************************/
 
-#ifndef GOOGLE_HTTP_CAPTIONSTREAM_H
-#define GOOGLE_HTTP_CAPTIONSTREAM_H
+#ifndef DEEPGRAM_CAPTIONSTREAM_H
+#define DEEPGRAM_CAPTIONSTREAM_H
 
-#include "TcpConnection.h"
-#include <queue>
+#include <vector>
 #include <cameron314/blockingconcurrentqueue.h>
 #include <CaptionStream.h>
+#include <curl/curl.h>
 
 
-class GoogleHttpCaptionStream : public CaptionStream {
-    TcpConnection upstream;
-    TcpConnection downstream;
-
+class DeepgramCaptionStream : public CaptionStream {
     CaptionStreamSettings settings;
-    string session_pair;
 
-    std::thread *upstream_thread = nullptr;
-    std::thread *downstream_thread = nullptr;
-
+    std::thread *stream_thread = nullptr;
     moodycamel::BlockingConcurrentQueue<string *> audio_queue;
 
     bool started = false;
     bool stopped = false;
 
+    CURL *curl_handle = nullptr;
+    curl_socket_t sockfd = CURL_SOCKET_BAD;
+    string recv_buffer;
+    int current_result_index = 0;
+    std::chrono::steady_clock::time_point first_received_at;
+    bool update_first_received_at = true;
+
     string *dequeue_audio_data(const std::int64_t timeout_us);
 
-    void upstream_run(std::shared_ptr<CaptionStream> self);
+    void stream_run(std::shared_ptr<CaptionStream> self);
+    void _stream_run();
 
-    void _upstream_run(std::shared_ptr<CaptionStream> self);
-
-
-    void downstream_run(std::shared_ptr<CaptionStream> self);
-
-    void _downstream_run();
+    bool curl_connect();
+    bool ws_handshake();
+    bool send_all(const char *data, size_t len);
+    bool ws_send_frame(uint8_t opcode, const char *data, size_t len);
+    bool ws_send_binary(const char *data, size_t len);
+    bool ws_send_text(const string &text);
+    void process_incoming();
 
 public:
 
-    GoogleHttpCaptionStream(
-            CaptionStreamSettings settings
-    );
+    DeepgramCaptionStream(CaptionStreamSettings settings);
 
     bool start(std::shared_ptr<CaptionStream> self) override;
 
@@ -68,7 +69,7 @@ public:
 
     bool queue_audio_data(const char *data, const uint data_size) override;
 
-    ~GoogleHttpCaptionStream() override;
+    ~DeepgramCaptionStream() override;
 };
 
-#endif //GOOGLE_HTTP_CAPTIONSTREAM_H
+#endif //DEEPGRAM_CAPTIONSTREAM_H
