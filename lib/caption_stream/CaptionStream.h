@@ -18,6 +18,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #ifndef OBS_CAPTION_STREAM_H
 #define OBS_CAPTION_STREAM_H
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <winsock2.h>
+#endif
+
 #include <functional>
 #include <iostream>
 #include <thread>
@@ -49,6 +55,8 @@ struct CaptionStreamSettings {
     string language;
     int profanity_filter;
     string api_key;
+    string model;
+    string keywords; // comma-separated boost terms
 
     CaptionStreamSettings(
             uint connect_timeout_ms,
@@ -59,7 +67,9 @@ struct CaptionStreamSettings {
             uint download_thread_start_delay_ms,
             const string &language,
             int profanity_filter,
-            const string &api_key
+            const string &api_key,
+            const string &model = "nova-3",
+            const string &keywords = ""
     ) :
             connect_timeout_ms(connect_timeout_ms),
             send_timeout_ms(send_timeout_ms),
@@ -69,7 +79,9 @@ struct CaptionStreamSettings {
             download_thread_start_delay_ms(download_thread_start_delay_ms),
             language(language),
             profanity_filter(profanity_filter),
-            api_key(api_key) {}
+            api_key(api_key),
+            model(model),
+            keywords(keywords) {}
 
     bool operator==(const CaptionStreamSettings &rhs) const {
         return connect_timeout_ms == rhs.connect_timeout_ms &&
@@ -79,7 +91,9 @@ struct CaptionStreamSettings {
                download_thread_start_delay_ms == rhs.download_thread_start_delay_ms &&
                language == rhs.language &&
                profanity_filter == rhs.profanity_filter &&
-               api_key == rhs.api_key;
+               api_key == rhs.api_key &&
+               model == rhs.model &&
+               keywords == rhs.keywords;
     }
 
     bool operator!=(const CaptionStreamSettings &rhs) const {

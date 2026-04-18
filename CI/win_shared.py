@@ -33,32 +33,42 @@ def eprint(*args, **kwargs):
 def package_zip(release: Path, installed_dir: Path, version: str):
 	release.mkdir(parents = True, exist_ok = True)
 
-	obs_plugin = release.joinpath(rf"Closed_Captions_Plugin__v{version}_Windows\obs-plugins")
-	print(f"obs_plugin plugin path: {obs_plugin}")
-	obs_plugin.mkdir(parents = True, exist_ok = True)
-
-	obs_plugin_64bit = obs_plugin.joinpath("64bit")
-	obs_plugin_64bit.mkdir(exist_ok = True)
+	pkg_dir = release.joinpath(f"Closed_Captions_Plugin__v{version}_Windows")
+	obs_plugin_64bit = pkg_dir.joinpath("obs-plugins", "64bit")
+	obs_plugin_64bit.mkdir(parents = True, exist_ok = True)
 
 	plugin_dll = installed_dir.joinpath(r"lib\obs_google_caption_plugin.dll")
 	print(f"copying  {plugin_dll!r} -> {obs_plugin_64bit!r}")
 	shutil.copy(plugin_dll, obs_plugin_64bit)
 
-	check_call(["7z", "a", "-r", release.joinpath(rf"Closed_Captions_Plugin__v{version}_Windows.zip"), obs_plugin.parent])
-	check_call(["7z", "a", "-r", release.joinpath(rf"Closed_Captions_Plugin__v{version}_Windows_plugins.zip"), obs_plugin])
+	readme = pkg_dir.joinpath("INSTALL.txt")
+	readme.write_text(
+		"Cloud Closed Captions Plugin for OBS Studio\n"
+		"=============================================\n\n"
+		"To install:\n"
+		"  1. Copy the obs-plugins folder into your OBS Studio installation directory.\n"
+		"     Typically: C:\\Program Files\\obs-studio\\\n\n"
+		"  2. Restart OBS Studio.\n\n"
+		"  3. Go to Tools > Cloud Closed Captions to configure.\n"
+	)
+
+	check_call(["7z", "a", "-r", release.joinpath(f"Closed_Captions_Plugin__v{version}_Windows.zip"), pkg_dir])
+
+	# Build NSIS installer
+	nsi_script = Path(__file__).parent.joinpath("installer.nsi")
+	if nsi_script.exists():
+		installer_exe = release.joinpath(f"Closed_Captions_Plugin__v{version}_Windows_Setup.exe")
+		try:
+			check_call([
+				"makensis",
+				f"/DVERSION={version}",
+				f"/DPLUGIN_DLL={str(plugin_dll)}",
+				f"/DOUTFILE={str(installer_exe)}",
+				str(nsi_script),
+			])
+			print(f"installer built: {installer_exe}")
+		except Exception as e:
+			print(f"WARNING: NSIS installer build failed (makensis may not be installed): {e}")
+			print("ZIP package was still created successfully.")
 
 
-def get_google_api_key_arg():
-	google_api_key = os.environ.get("GOOGLE_API_KEY")
-	if google_api_key == "$(GOOGLE_API_KEY)":
-		google_api_key = None
-		eprint("mkdir ignoring azure env arg", google_api_key)
-
-	if google_api_key:
-		print("building with hardcoded API key", len(google_api_key))
-		google_api_key_arg = f"-DGOOGLE_API_KEY={google_api_key}"
-	else:
-		print("building with UI for user provided API key")
-		google_api_key_arg = "-DENABLE_CUSTOM_API_KEY=ON"
-
-	return google_api_key_arg

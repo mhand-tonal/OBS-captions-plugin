@@ -179,22 +179,31 @@ CaptionSettingsWidget::CaptionSettingsWidget(const CaptionPluginSettings &latest
     this->verticalLayoutTabTextFiltering->setAlignment(Qt::AlignTop);
     this->updateUi();
 
-#if ENABLE_CUSTOM_API_KEY
     this->apiKeyLabel->show();
     this->apiKeyWidget->show();
-#else
-    this->apiKeyLabel->hide();
-    this->apiKeyWidget->hide();
-#endif
 
     captionWhenComboBox->addItem("Caption Source is heard on stream", "own_source");
     captionWhenComboBox->addItem("Mute Source is heard on stream", "other_mute_source");
+
+    setup_combobox_speech_api_provider(*speechApiProviderComboBox);
+    setup_combobox_deepgram_model(*deepgramModelComboBox);
+
+    auto update_provider_visibility = [this]() {
+        bool is_deepgram = speechApiProviderComboBox->currentData().toInt() == SPEECH_API_DEEPGRAM_WEBSOCKET;
+        deepgramModelLabel->setVisible(is_deepgram);
+        deepgramModelComboBox->setVisible(is_deepgram);
+        deepgramKeywordsLabel->setVisible(is_deepgram);
+        deepgramKeywordsLineEdit->setVisible(is_deepgram);
+    };
+    QObject::connect(speechApiProviderComboBox, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
+                     this, [update_provider_visibility](int) { update_provider_visibility(); });
 
     setup_combobox_languages(*languageComboBox);
     setup_combobox_profanity(*profanityFilterComboBox);
     setup_combobox_capitalization(*capitalizationComboBox);
     setup_combobox_capitalization(*srtCapitalizationComboBox);
     setup_combobox_output_target(*outputTargetComboBox, true);
+    setup_combobox_stream_output_mode(*streamOutputModeComboBox);
     setup_combobox_transcript_format(*transcriptFormatComboBox);
 
     setup_combobox_recording_filename(*recordingTranscriptFilenameComboBox);
@@ -212,6 +221,9 @@ CaptionSettingsWidget::CaptionSettingsWidget(const CaptionPluginSettings &latest
 
     QObject::connect(this->cancelPushButton, &QPushButton::clicked, this, &CaptionSettingsWidget::hide);
     QObject::connect(this->savePushButton, &QPushButton::clicked, this, &CaptionSettingsWidget::accept_current_settings);
+
+    QObject::connect(streamOutputModeComboBox, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
+                     this, [this](int) { update_stream_output_mode_visibility(); });
 
     QObject::connect(captionWhenComboBox, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
                      this, &CaptionSettingsWidget::caption_when_index_change);
@@ -284,6 +296,25 @@ void CaptionSettingsWidget::sources_combo_index_change(int new_index) {
 
 void CaptionSettingsWidget::caption_when_index_change(int new_index) {
     this->update_sources_visibilities();
+}
+
+void CaptionSettingsWidget::update_stream_output_mode_visibility() {
+    const int mode = streamOutputModeComboBox->currentData().toInt();
+    const bool is_advanced_mode = (mode == STREAM_OUTPUT_MODE_APPEND_ONLY ||
+                                   mode == STREAM_OUTPUT_MODE_GROWING ||
+                                   mode == STREAM_OUTPUT_MODE_SUBTITLE_BOX);
+    // Delay is useful for all modes now (Low Latency uses it as a revision buffer)
+    debounceDelayLabel->setVisible(true);
+    debounceDelaySpinBox->setVisible(true);
+    stabilityThresholdLabel->setVisible(is_advanced_mode);
+    stabilityThresholdSpinBox->setVisible(is_advanced_mode);
+    const bool show_reveal = (mode == STREAM_OUTPUT_MODE_GROWING || mode == STREAM_OUTPUT_MODE_SUBTITLE_BOX);
+    wordRevealDelayLabel->setVisible(show_reveal);
+    wordRevealDelaySpinBox->setVisible(show_reveal);
+
+    const bool show_dwell = (mode == STREAM_OUTPUT_MODE_SUBTITLE_BOX);
+    cardDwellLabel->setVisible(show_dwell);
+    cardDwellSpinBox->setVisible(show_dwell);
 }
 
 void CaptionSettingsWidget::update_sources_visibilities() {
@@ -432,6 +463,8 @@ void CaptionSettingsWidget::virtualcam_name_index_change(int new_index) {
 void CaptionSettingsWidget::accept_current_settings() {
     SourceCaptionerSettings &source_settings = current_settings.source_cap_settings;
 
+    source_settings.stream_settings.provider = (SpeechApiProvider) speechApiProviderComboBox->currentData().toInt();
+
     string lang_str = languageComboBox->currentData().toString().toStdString();
     source_settings.stream_settings.stream_settings.language = lang_str;
 //    debug_log("lang: %s", lang_str.c_str());
@@ -440,6 +473,17 @@ void CaptionSettingsWidget::accept_current_settings() {
     source_settings.stream_settings.stream_settings.profanity_filter = profanity_filter;
 //    debug_log("profanity_filter: %d", profanity_filter);
     source_settings.stream_settings.stream_settings.api_key = apiKeyLineEdit->text().toStdString();
+    {
+        // Use data value if available, otherwise the raw text (for custom models typed in)
+        QVariant data = deepgramModelComboBox->currentData();
+        if (data.isValid() && !data.toString().isEmpty())
+            source_settings.stream_settings.stream_settings.model = data.toString().toStdString();
+        else {
+            string text = deepgramModelComboBox->currentText().toStdString();
+            source_settings.stream_settings.stream_settings.model = text.empty() ? "nova-3" : text;
+        }
+    }
+    source_settings.stream_settings.stream_settings.keywords = deepgramKeywordsLineEdit->text().toStdString();
 
     source_settings.format_settings.caption_line_count = lineCountSpinBox->value();
     source_settings.format_settings.capitalization = (CapitalizationType) capitalizationComboBox->currentData().toInt();
@@ -465,6 +509,13 @@ void CaptionSettingsWidget::accept_current_settings() {
 
     source_settings.format_settings.caption_timeout_enabled = this->captionTimeoutEnabledCheckBox->isChecked();
     source_settings.format_settings.caption_timeout_seconds = this->captionTimeoutDoubleSpinBox->value();
+
+    source_settings.format_settings.stream_caption_output_mode =
+            (StreamCaptionOutputMode) streamOutputModeComboBox->currentData().toInt();
+    source_settings.format_settings.debounce_delay_seconds = debounceDelaySpinBox->value();
+    source_settings.format_settings.append_stability_threshold = stabilityThresholdSpinBox->value();
+    source_settings.format_settings.word_reveal_delay_ms = wordRevealDelaySpinBox->value();
+    source_settings.format_settings.card_dwell_seconds = cardDwellSpinBox->value();
 
     auto reps = std::vector<WordReplacement>();
     getReplacements(wordReplacementTableWidget, reps);
@@ -536,11 +587,29 @@ void CaptionSettingsWidget::updateUi() {
 
     update_scene_collection_ui(scene_collection_name);
 
+    combobox_set_data_int(*speechApiProviderComboBox, source_settings.stream_settings.provider, 0);
     combobox_set_data_str(*languageComboBox, source_settings.stream_settings.stream_settings.language.c_str(), 0);
     language_index_change(0);
     combobox_set_data_int(*profanityFilterComboBox, source_settings.stream_settings.stream_settings.profanity_filter, 0);
 
     apiKeyLineEdit->setText(QString::fromStdString(source_settings.stream_settings.stream_settings.api_key));
+    {
+        // Try to select by data value, fall back to setting editable text
+        QString model = QString::fromStdString(source_settings.stream_settings.stream_settings.model);
+        int idx = deepgramModelComboBox->findData(model);
+        if (idx >= 0)
+            deepgramModelComboBox->setCurrentIndex(idx);
+        else
+            deepgramModelComboBox->setCurrentText(model);
+    }
+    deepgramKeywordsLineEdit->setText(QString::fromStdString(source_settings.stream_settings.stream_settings.keywords));
+
+    // Update Deepgram-specific field visibility
+    bool is_deepgram = speechApiProviderComboBox->currentData().toInt() == SPEECH_API_DEEPGRAM_WEBSOCKET;
+    deepgramModelLabel->setVisible(is_deepgram);
+    deepgramModelComboBox->setVisible(is_deepgram);
+    deepgramKeywordsLabel->setVisible(is_deepgram);
+    deepgramKeywordsLineEdit->setVisible(is_deepgram);
 
     lineCountSpinBox->setValue(source_settings.format_settings.caption_line_count);
     insertLinebreaksCheckBox->setChecked(source_settings.format_settings.caption_insert_newlines);
@@ -556,6 +625,13 @@ void CaptionSettingsWidget::updateUi() {
 
     this->captionTimeoutEnabledCheckBox->setChecked(source_settings.format_settings.caption_timeout_enabled);
     this->captionTimeoutDoubleSpinBox->setValue(source_settings.format_settings.caption_timeout_seconds);
+
+    combobox_set_data_int(*streamOutputModeComboBox, source_settings.format_settings.stream_caption_output_mode, 0);
+    debounceDelaySpinBox->setValue(source_settings.format_settings.debounce_delay_seconds);
+    stabilityThresholdSpinBox->setValue(source_settings.format_settings.append_stability_threshold);
+    wordRevealDelaySpinBox->setValue(source_settings.format_settings.word_reveal_delay_ms);
+    cardDwellSpinBox->setValue(source_settings.format_settings.card_dwell_seconds);
+    update_stream_output_mode_visibility();
 
     setupReplacementTableWidget(this->wordReplacementTableWidget, source_settings.format_settings.replacer.user_replacements());
 

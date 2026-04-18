@@ -109,6 +109,35 @@ static void setup_combobox_capitalization(QComboBox &comboBox) {
     comboBox.addItem("all lowercase", 2);
 }
 
+static void setup_combobox_speech_api_provider(QComboBox &comboBox) {
+    while (comboBox.count())
+        comboBox.removeItem(0);
+
+    comboBox.addItem("Google Cloud Speech", SPEECH_API_GOOGLE_HTTP);
+    comboBox.addItem("Deepgram", SPEECH_API_DEEPGRAM_WEBSOCKET);
+}
+
+static void setup_combobox_deepgram_model(QComboBox &comboBox) {
+    while (comboBox.count())
+        comboBox.removeItem(0);
+
+    comboBox.addItem("Nova 3 (latest)", "nova-3");
+    comboBox.addItem("Nova 2", "nova-2");
+    comboBox.addItem("Nova", "nova");
+    comboBox.addItem("Enhanced", "enhanced");
+    comboBox.addItem("Base", "base");
+}
+
+static void setup_combobox_stream_output_mode(QComboBox &comboBox) {
+    while (comboBox.count())
+        comboBox.removeItem(0);
+
+    comboBox.addItem("Low Latency", STREAM_OUTPUT_MODE_LOW_LATENCY);
+    comboBox.addItem("Append Only (new text only, never backtracks)", STREAM_OUTPUT_MODE_APPEND_ONLY);
+    comboBox.addItem("Growing Display (stable word positions)", STREAM_OUTPUT_MODE_GROWING);
+    comboBox.addItem("Subtitle Box (fill, hold, clear)", STREAM_OUTPUT_MODE_SUBTITLE_BOX);
+}
+
 static string transcript_format_extension(const string &format, const string &fallback) {
     if (format == "raw")
         return "log";

@@ -21,6 +21,10 @@ target_include_directories(speech_api_deepgram_ws PRIVATE
 
 target_link_libraries(speech_api_deepgram_ws CURL::libcurl)
 
+if (WIN32)
+    target_link_libraries(speech_api_deepgram_ws ws2_32)
+endif ()
+
 if (UNIX AND NOT APPLE)
     target_compile_options(speech_api_deepgram_ws PRIVATE "-fPIC")
 endif ()

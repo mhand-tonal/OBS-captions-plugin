@@ -16,6 +16,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ******************************************************************************/
 
 #include <memory>
+#include <sstream>
 
 
 #include "SourceCaptioner.h"
@@ -24,6 +25,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "caption_transcript_writer.h"
 
 typedef std::tuple<string, string> TextOutputTup;
+
+static void keep_last_lines(vector<string> &lines, uint keep);
 
 void set_text_source_text(const string &text_source_name, const string &caption_text) {
     obs_source_t *text_source = obs_get_source_by_name(text_source_name.c_str());
@@ -50,6 +53,7 @@ SourceCaptioner::SourceCaptioner(const bool enabled, const SourceCaptionerSettin
         last_caption_cleared(true) {
 
     QObject::connect(&timer, &QTimer::timeout, this, &SourceCaptioner::clear_output_timer_cb);
+    QObject::connect(&word_reveal_timer, &QTimer::timeout, this, &SourceCaptioner::word_reveal_timer_cb);
 
     QObject::connect(this, &SourceCaptioner::received_caption_result,
                      this, &SourceCaptioner::process_caption_result, Qt::QueuedConnection);
@@ -255,16 +259,12 @@ bool SourceCaptioner::_start_caption_stream(bool restart_stream) {
         if (!continuous_captions || restart_stream) {
             try {
 
-#if ENABLE_CUSTOM_API_KEY
                 ContinuousCaptionStreamSettings settings_copy = settings.stream_settings;
-                debug_log("using ENABLE_CUSTOM_API_KEY %lu", settings_copy.stream_settings.api_key.length());
-#else
-#ifdef GOOGLE_API_KEY_STR
-                ContinuousCaptionStreamSettings settings_copy = settings.stream_settings;
-                settings_copy.stream_settings.api_key = GOOGLE_API_KEY_STR;
-                debug_log("using GOOGLE_API_KEY_STR %lu", settings_copy.stream_settings.api_key.length());
-#endif
-#endif
+                debug_log("using api key length %lu", settings_copy.stream_settings.api_key.length());
+                info_log("provider=%d model='%s' keywords='%s'",
+                         settings_copy.provider,
+                         settings_copy.stream_settings.model.c_str(),
+                         settings_copy.stream_settings.keywords.c_str());
 
                 auto caption_cb = std::bind(&SourceCaptioner::on_caption_text_callback, this, std::placeholders::_1, std::placeholders::_2);
                 continuous_captions = std::make_unique<ContinuousCaptions>(settings_copy);
@@ -275,6 +275,11 @@ bool SourceCaptioner::_start_caption_stream(bool restart_stream) {
                 return false;
             }
         }
+        // Reset caption mode state for fresh start
+        append_only_last_result_index = -1;
+        append_only_last_result_started_at = {};
+        reset_caption_mode_state();
+
         caption_result_handler = std::make_unique<CaptionResultHandler>(settings.format_settings);
 
         try {
@@ -365,6 +370,83 @@ void SourceCaptioner::on_audio_data_callback(const int id, const uint8_t *data, 
 
 }
 
+void SourceCaptioner::word_reveal_timer_cb() {
+    std::lock_guard<recursive_mutex> lock(settings_change_mutex);
+
+    const uint line_length = settings.format_settings.caption_line_length;
+    const uint line_count = settings.format_settings.caption_line_count;
+    const bool is_subtitle_box = (settings.format_settings.stream_caption_output_mode == STREAM_OUTPUT_MODE_SUBTITLE_BOX);
+    const double dwell_secs = settings.format_settings.card_dwell_seconds;
+
+    // If dwelling, check expiry
+    if (card_dwelling) {
+        auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(
+                std::chrono::steady_clock::now() - card_dwell_start).count();
+        if (elapsed < dwell_secs)
+            return; // keep ticking, keep card on screen
+        card_dwelling = false;
+        growing_committed_lines.clear();
+        growing_current_line.clear();
+    }
+
+    if (word_reveal_queue.empty()) {
+        word_reveal_timer.stop();
+        return;
+    }
+
+    const string &word = word_reveal_queue.front();
+    size_t proposed = growing_current_line.empty()
+                      ? word.size()
+                      : growing_current_line.size() + 1 + word.size();
+    if (!growing_current_line.empty() && proposed > line_length) {
+        if (is_subtitle_box && (int)growing_committed_lines.size() >= (int)line_count - 1) {
+            if (dwell_secs > 0) {
+                // Don't pop — hold the full card on screen for dwell_secs.
+                card_dwelling = true;
+                card_dwell_start = std::chrono::steady_clock::now();
+                return;
+            }
+            growing_committed_lines.clear();
+            growing_current_line.clear();
+        } else {
+            growing_committed_lines.push_back(std::move(growing_current_line));
+            growing_current_line.clear();
+            if (!is_subtitle_box) {
+                const uint keep = line_count > 1 ? line_count - 1 : 0;
+                keep_last_lines(growing_committed_lines, keep);
+            }
+        }
+    }
+    if (!growing_current_line.empty()) growing_current_line += ' ';
+    growing_current_line += word;
+    word_reveal_queue.pop_front();
+
+    if (word_reveal_queue.empty() && !card_dwelling)
+        word_reveal_timer.stop();
+
+    CaptionResult dummy_cr;
+    dummy_cr.final = false;
+    auto result = build_word_reveal_display(dummy_cr, false, line_count, is_subtitle_box);
+    if (result->output_lines.empty() && !is_subtitle_box)
+        return;
+
+    bool to_stream = settings.streaming_output_enabled;
+    bool to_recording = settings.recording_output_enabled;
+
+    if (to_stream || to_recording) {
+        this->output_caption_writers(
+                CaptionOutput(result, false),
+                to_stream, to_recording,
+                false, false, false, false);
+        caption_was_output();
+    }
+
+    // Update preview
+    string recent_text;
+    prepare_recent(recent_text);
+    emit caption_result_received(result, false, recent_text);
+}
+
 void SourceCaptioner::clear_output_timer_cb() {
 //    info_log("clear timer checkkkkkkkkkkkkkkk");
 
@@ -386,6 +468,8 @@ void SourceCaptioner::clear_output_timer_cb() {
                  secs_since_last_caption, this->settings.format_settings.caption_timeout_seconds);
 
         this->last_caption_cleared = true;
+        reset_caption_mode_state();
+        word_reveal_timer.stop();
         to_stream = settings.streaming_output_enabled;
         to_recording = settings.recording_output_enabled;
         to_transcript_streaming = settings.transcript_settings.enabled && settings.transcript_settings.streaming_transcripts_enabled;
@@ -483,11 +567,159 @@ void SourceCaptioner::on_caption_text_callback(const CaptionResult &caption_resu
     emit received_caption_result(caption_result, interrupted);
 }
 
+static vector<string> split_words(const string &text) {
+    vector<string> out;
+    std::istringstream ss(text);
+    string w;
+    while (std::getline(ss, w, ' ')) {
+        if (!w.empty()) out.push_back(std::move(w));
+    }
+    return out;
+}
+
+static size_t word_boundary_after(const string &text, size_t word_count) {
+    size_t pos = 0;
+    size_t seen_words = 0;
+    while (pos < text.size() && seen_words < word_count) {
+        while (pos < text.size() && text[pos] == ' ')
+            pos++;
+        while (pos < text.size() && text[pos] != ' ')
+            pos++;
+        seen_words++;
+    }
+    return pos;
+}
+
+static string compute_rebased_append_delta(const string &previous_text, const string &current_text) {
+    vector<string> previous_words = split_words(previous_text);
+    vector<string> current_words = split_words(current_text);
+
+    size_t common_words = 0;
+    const size_t max_common_words = previous_words.size() < current_words.size()
+                                    ? previous_words.size()
+                                    : current_words.size();
+    while (common_words < max_common_words &&
+           previous_words[common_words] == current_words[common_words]) {
+        common_words++;
+    }
+
+    const size_t delta_start = common_words == 0 ? 0 : word_boundary_after(current_text, common_words);
+    return current_text.substr(delta_start);
+}
+
+static void keep_last_lines(vector<string> &lines, uint keep) {
+    if (lines.size() > keep)
+        lines.erase(lines.begin(), lines.end() - keep);
+}
+
+bool SourceCaptioner::should_skip_nonfinal_for_stability(const CaptionResult &cr) const {
+    return !cr.final && cr.stability < settings.format_settings.append_stability_threshold;
+}
+
+bool SourceCaptioner::should_skip_nonfinal_for_debounce(const CaptionResult &cr,
+                                                       std::chrono::steady_clock::time_point now) const {
+    if (cr.final) return false;
+    auto since_last = std::chrono::duration_cast<std::chrono::duration<double>>(
+            now - last_stream_caption_sent_at).count();
+    return since_last < settings.format_settings.debounce_delay_seconds;
+}
+
+shared_ptr<OutputCaptionResult> SourceCaptioner::build_word_reveal_display(
+        const CaptionResult &cr, bool interrupted, uint line_count, bool is_subtitle_box) {
+    const size_t total = growing_committed_lines.size() + (growing_current_line.empty() ? 0 : 1);
+    auto result = std::make_shared<OutputCaptionResult>(cr, interrupted);
+    if (total == 0 && !is_subtitle_box) {
+        result->output_line.clear();
+        return result;
+    }
+
+    const size_t target = is_subtitle_box && total < line_count ? line_count : total;
+    string display;
+    vector<string> display_lines;
+    display_lines.reserve(target);
+
+    for (const auto &l : growing_committed_lines) {
+        if (!display.empty()) display += "\r\n";
+        display += l;
+        display_lines.push_back(l);
+    }
+    if (!growing_current_line.empty()) {
+        if (!display.empty()) display += "\r\n";
+        display += growing_current_line;
+        display_lines.push_back(growing_current_line);
+    }
+    while (is_subtitle_box && display_lines.size() < line_count) {
+        if (!display.empty()) display += "\r\n";
+        display += ' ';
+        display_lines.emplace_back(" ");
+    }
+
+    result->clean_caption_text = display;
+    result->output_line = display;
+    result->output_lines = std::move(display_lines);
+    return result;
+}
+
+void SourceCaptioner::reset_caption_mode_state() {
+    append_only_sent_text.clear();
+    growing_committed_lines.clear();
+    growing_current_line.clear();
+    word_reveal_queue.clear();
+    lowlatency_buffering = false;
+    card_dwelling = false;
+    segment_committed_words = 0;
+    segment_index = -1;
+    segment_buffered_text.clear();
+    segment_buffered_count = 0;
+    segment_buffer_start = {};
+}
+
+string SourceCaptioner::compute_append_delta(const CaptionResult &cr, const string &current_text) {
+    // When a new segment/utterance starts (index or timestamp changes), clear
+    // the delta tracker so the new text is treated as fresh delta.  Do NOT reset
+    // the display state (growing lines, subtitle box) — text should accumulate
+    // continuously across segments and only clear when the box is full or on
+    // explicit restart.
+    if (cr.index != append_only_last_result_index ||
+        cr.first_received_at != append_only_last_result_started_at) {
+        append_only_last_result_index = cr.index;
+        append_only_last_result_started_at = cr.first_received_at;
+        append_only_sent_text.clear();
+    }
+
+    string delta;
+    bool should_rebaseline = false;
+    if (current_text.size() > append_only_sent_text.size() &&
+        current_text.compare(0, append_only_sent_text.size(), append_only_sent_text) == 0) {
+        delta = current_text.substr(append_only_sent_text.size());
+        should_rebaseline = true;
+    } else {
+        const bool pure_backtrack =
+                append_only_sent_text.size() > current_text.size() &&
+                append_only_sent_text.compare(0, current_text.size(), current_text) == 0;
+        if (!current_text.empty() && !pure_backtrack && current_text != append_only_sent_text) {
+            delta = compute_rebased_append_delta(append_only_sent_text, current_text);
+            should_rebaseline = true;
+        }
+    }
+
+    if (should_rebaseline) {
+        static constexpr size_t APPEND_TRACKER_MAX = 64 * 1024;
+        if (current_text.size() > APPEND_TRACKER_MAX)
+            append_only_sent_text.clear();
+        else
+            append_only_sent_text = current_text;
+    }
+    return delta;
+}
+
 void SourceCaptioner::process_caption_result(const CaptionResult caption_result, bool interrupted) {
     shared_ptr<OutputCaptionResult> native_output_result;
     shared_ptr<OutputCaptionResult> file_output_result(nullptr);
+    shared_ptr<OutputCaptionResult> stream_output_result;
     string recent_caption_text;
     bool to_stream, to_recording, to_transcript_streaming, to_transcript_recording, to_transcript_virtualcam;
+    bool preview_this_result = true;
 
     if (this->last_caption_text == caption_result.caption_text && this->last_caption_final == caption_result.final) {
         return;
@@ -543,6 +775,222 @@ void SourceCaptioner::process_caption_result(const CaptionResult caption_result,
 
         to_stream = settings.streaming_output_enabled;
         to_recording = settings.recording_output_enabled;
+
+        if (to_stream || to_recording) {
+            const auto now = std::chrono::steady_clock::now();
+            const string &current_text = native_output_result->clean_caption_text;
+            const uint line_length = settings.format_settings.caption_line_length;
+            const uint line_count = settings.format_settings.caption_line_count;
+            const auto skip_output = [&]() {
+                to_stream = false;
+                to_recording = false;
+                preview_this_result = false;
+            };
+
+            switch (settings.format_settings.stream_caption_output_mode) {
+                case STREAM_OUTPUT_MODE_DEBOUNCED:
+                    if (should_skip_nonfinal_for_debounce(caption_result, now))
+                        skip_output();
+                    break;
+                case STREAM_OUTPUT_MODE_APPEND_ONLY: {
+                    if (should_skip_nonfinal_for_stability(caption_result) ||
+                        should_skip_nonfinal_for_debounce(caption_result, now)) {
+                        skip_output();
+                        break;
+                    }
+                    string delta = compute_append_delta(caption_result, current_text);
+                    if (delta.empty()) {
+                        skip_output();
+                        break;
+                    }
+                    auto delta_result = std::make_shared<OutputCaptionResult>(caption_result, interrupted);
+                    delta_result->clean_caption_text = delta;
+                    delta_result->output_line = delta;
+                    delta_result->output_lines.push_back(std::move(delta));
+                    stream_output_result = delta_result;
+                    break;
+                }
+                case STREAM_OUTPUT_MODE_GROWING:
+                case STREAM_OUTPUT_MODE_SUBTITLE_BOX: {
+                    {
+                        // Shared word intake: append-only word counting with delay buffer.
+                        // Both interims and finals can add words, but only NEW words
+                        // (beyond what's already committed). Revisions are ignored.
+                        // Line breaks are permanent: once a word is placed, it never moves.
+                        const int reveal_ms = settings.format_settings.word_reveal_delay_ms;
+                        const double delay_secs = settings.format_settings.debounce_delay_seconds;
+                        const bool is_subtitle_box = (settings.format_settings.stream_caption_output_mode == STREAM_OUTPUT_MODE_SUBTITLE_BOX);
+
+                        vector<string> current_words = split_words(current_text);
+
+                        if (caption_result.index != segment_index ||
+                            caption_result.first_received_at != segment_started_at) {
+                            if (segment_buffered_count > segment_committed_words) {
+                                vector<string> flush_words = split_words(segment_buffered_text);
+                                for (int i = segment_committed_words; i < (int)flush_words.size(); i++)
+                                    word_reveal_queue.push_back(std::move(flush_words[i]));
+                            }
+
+                            // New segment may repeat the last few words from the previous
+                            // one (ASR context carryover). Find the longest suffix of
+                            // the display tail that matches a prefix of the new segment
+                            // (up to 3 words, case-insensitive, punctuation-stripped).
+                            vector<string> tail_words;
+                            if (!growing_current_line.empty())
+                                for (auto &w : split_words(growing_current_line))
+                                    tail_words.push_back(w);
+                            for (auto &w : word_reveal_queue)
+                                tail_words.push_back(w);
+
+                            auto normalize = [](const string &s) {
+                                string r = s;
+                                while (!r.empty() && std::ispunct((unsigned char)r.back()))
+                                    r.pop_back();
+                                for (auto &c : r) c = std::tolower((unsigned char)c);
+                                return r;
+                            };
+
+                            int overlap = 0;
+                            if (!tail_words.empty() && !current_words.empty()) {
+                                int max_check = std::min({(int)tail_words.size(), (int)current_words.size(), 3});
+                                for (int len = 1; len <= max_check; len++) {
+                                    bool match = true;
+                                    for (int j = 0; j < len; j++) {
+                                        if (normalize(tail_words[tail_words.size() - len + j]) !=
+                                            normalize(current_words[j])) {
+                                            match = false;
+                                            break;
+                                        }
+                                    }
+                                    if (match) overlap = len;
+                                }
+                            }
+
+                            segment_committed_words = overlap;
+                            segment_buffered_count = 0;
+                            segment_buffered_text.clear();
+                            segment_buffer_start = {};
+                            segment_index = caption_result.index;
+                            segment_started_at = caption_result.first_received_at;
+                        }
+
+                        const int word_count = (int)current_words.size();
+                        if (word_count > segment_buffered_count) {
+                            if (segment_buffered_count <= segment_committed_words)
+                                segment_buffer_start = now;
+                            segment_buffered_count = word_count;
+                        }
+                        segment_buffered_text = current_text;
+
+                        bool should_commit = false;
+                        if (caption_result.final) {
+                            should_commit = true;
+                        } else if (segment_buffered_count > segment_committed_words &&
+                                   segment_buffer_start != std::chrono::steady_clock::time_point{}) {
+                            auto waited = std::chrono::duration_cast<std::chrono::duration<double>>(
+                                    now - segment_buffer_start).count();
+                            should_commit = (waited >= delay_secs);
+                        }
+
+                        if (should_commit && segment_buffered_count > segment_committed_words) {
+                            for (int i = segment_committed_words; i < (int)current_words.size(); i++)
+                                word_reveal_queue.push_back(std::move(current_words[i]));
+                            segment_committed_words = word_count;
+                            segment_buffer_start = {};
+                        }
+
+                        const double dwell_secs = is_subtitle_box ? settings.format_settings.card_dwell_seconds : 0.0;
+
+                        // If dwelling (subtitle box card full, waiting before clear), check expiry
+                        if (card_dwelling) {
+                            auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(
+                                    now - card_dwell_start).count();
+                            if (elapsed < dwell_secs) {
+                                // Re-emit current card so native ASR text doesn't leak through.
+                                stream_output_result = build_word_reveal_display(
+                                        caption_result, interrupted, line_count, is_subtitle_box);
+                                break;
+                            }
+                            card_dwelling = false;
+                            growing_committed_lines.clear();
+                            growing_current_line.clear();
+                        }
+
+                        if (reveal_ms <= 0) {
+                            while (!word_reveal_queue.empty()) {
+                                const string &word = word_reveal_queue.front();
+                                size_t proposed = growing_current_line.empty()
+                                                  ? word.size()
+                                                  : growing_current_line.size() + 1 + word.size();
+                                if (!growing_current_line.empty() && proposed > line_length) {
+                                    if ((int)growing_committed_lines.size() >= (int)line_count - 1) {
+                                        if (is_subtitle_box) {
+                                            if (dwell_secs > 0) {
+                                                card_dwelling = true;
+                                                card_dwell_start = now;
+                                                break;
+                                            }
+                                            growing_committed_lines.clear();
+                                            growing_current_line.clear();
+                                        } else {
+                                            growing_committed_lines.push_back(std::move(growing_current_line));
+                                            growing_current_line.clear();
+                                            const uint keep = line_count > 1 ? line_count - 1 : 0;
+                                            keep_last_lines(growing_committed_lines, keep);
+                                        }
+                                    } else {
+                                        growing_committed_lines.push_back(std::move(growing_current_line));
+                                        growing_current_line.clear();
+                                    }
+                                }
+                                if (!growing_current_line.empty()) growing_current_line += ' ';
+                                growing_current_line += word;
+                                word_reveal_queue.pop_front();
+                            }
+                        }
+
+                        if (!word_reveal_queue.empty() && reveal_ms > 0 && !word_reveal_timer.isActive()) {
+                            word_reveal_timer.start(std::max(reveal_ms, 20));
+                        } else if (word_reveal_queue.empty() && !card_dwelling && word_reveal_timer.isActive()) {
+                            word_reveal_timer.stop();
+                        }
+
+                        // Always emit a mode-transformed result (even if empty) so the full
+                        // native ASR text can't leak through to the stream.
+                        stream_output_result = build_word_reveal_display(
+                                caption_result, interrupted, line_count, is_subtitle_box);
+                        break;
+                    }
+                    break;
+                }
+                case STREAM_OUTPUT_MODE_LOW_LATENCY:
+                default: {
+                    const double delay = settings.format_settings.debounce_delay_seconds;
+                    if (delay > 0 && !caption_result.final) {
+                        // Buffer interims for `delay` seconds to let the ASR revise
+                        if (!lowlatency_buffering) {
+                            lowlatency_buffer_start = now;
+                            lowlatency_buffering = true;
+                        }
+                        auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(
+                                now - lowlatency_buffer_start).count();
+                        if (elapsed < delay) {
+                            // Still within delay window — suppress stream output, keep preview
+                            to_stream = false;
+                            to_recording = false;
+                            break;
+                        }
+                        // Delay expired — show this result (latest revision)
+                        lowlatency_buffering = false;
+                    } else {
+                        // Final or delay=0 — pass through, reset buffer
+                        lowlatency_buffering = false;
+                    }
+                    break;
+                }
+            }
+        }
+
         to_transcript_streaming = settings.transcript_settings.enabled && settings.transcript_settings.streaming_transcripts_enabled;
         to_transcript_recording = settings.transcript_settings.enabled && settings.transcript_settings.recording_transcripts_enabled;
         to_transcript_virtualcam = settings.transcript_settings.enabled && settings.transcript_settings.virtualcam_transcripts_enabled;
@@ -561,13 +1009,22 @@ void SourceCaptioner::process_caption_result(const CaptionResult caption_result,
         }
     }
 
-    this->output_caption_writers(CaptionOutput(native_output_result, false),
-                                 to_stream,
-                                 to_recording,
-                                 to_transcript_streaming,
-                                 to_transcript_recording,
-                                 to_transcript_virtualcam,
-                                 false);
+    if (to_stream || to_recording) {
+        this->output_caption_writers(
+                CaptionOutput(stream_output_result ? stream_output_result : native_output_result, false),
+                to_stream, to_recording,
+                false, false, false,
+                false);
+    }
+    if (to_transcript_streaming || to_transcript_recording || to_transcript_virtualcam) {
+        // is_clearance=true on this call avoids a second caption_was_output() stamp;
+        // the stream/recording call above already stamped it.
+        this->output_caption_writers(
+                CaptionOutput(native_output_result, false),
+                false, false,
+                to_transcript_streaming, to_transcript_recording, to_transcript_virtualcam,
+                to_stream || to_recording);
+    }
 
     if (file_output_result)
         fileoutput_captions_output.enqueue(CaptionOutput(file_output_result, false));
@@ -575,8 +1032,13 @@ void SourceCaptioner::process_caption_result(const CaptionResult caption_result,
     for (const auto &text_out: text_source_sets) {
         set_text_source_text(std::get<0>(text_out), std::get<1>(text_out));
     }
+    if (!text_source_sets.empty())
+        caption_was_output();
 
-    emit caption_result_received(native_output_result, false, recent_caption_text);
+    if (preview_this_result) {
+        auto &preview_result = stream_output_result ? stream_output_result : native_output_result;
+        emit caption_result_received(preview_result, false, recent_caption_text);
+    }
 }
 
 void SourceCaptioner::output_caption_writers(
@@ -596,6 +1058,10 @@ void SourceCaptioner::output_caption_writers(
     bool sent_recording = false;
     if (to_recoding) {
         sent_recording = recording_output.enqueue(output);
+    }
+
+    if (sent_stream || sent_recording) {
+        last_stream_caption_sent_at = std::chrono::steady_clock::now();
     }
 
     bool sent_transcript_streaming = false;
@@ -632,6 +1098,7 @@ void SourceCaptioner::stream_started_event() {
     settings_change_mutex.unlock();
 
     auto control_output = std::make_shared<CaptionOutputControl<int>>(0);
+
     streaming_output.set_control(control_output);
     std::thread th(caption_output_writer_loop, control_output, true);
     th.detach();
@@ -656,6 +1123,7 @@ void SourceCaptioner::recording_started_event() {
     settings_change_mutex.unlock();
 
     auto control_output = std::make_shared<CaptionOutputControl<int>>(0);
+
     recording_output.set_control(control_output);
     std::thread th(caption_output_writer_loop, control_output, false);
     th.detach();

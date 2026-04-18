@@ -9,7 +9,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from sys import exit
 from win_build_obs import check_call, CMAKE_VS_ARGS, spa, setup_obs
-from win_shared import package_zip, get_google_api_key_arg
+from win_shared import package_zip
 
 
 def main():
@@ -39,17 +39,19 @@ def main():
 	build_dir = ci_root_dir.joinpath("build")
 	installed_dir = ci_root_dir.joinpath("installed")
 	build_dir.mkdir(exist_ok = True)
+	obs_build_dir = obs_studio_src.joinpath("build")
 	check_call([
 		"cmake",
 		*CMAKE_VS_ARGS,
 		r"-DCMAKE_BUILD_TYPE=RelWithDebInfo",
 		r"-DCMAKE_GENERATOR_PLATFORM=x64",
-		r"-DSPEECH_API_GOOGLE_HTTP_OLD=ON",
 		"-DBUILD_SHARED_LIBS=ON",
-		f"-DOBS_BUILD_DIR={str(build_installed_dir)}",
+		f"-DOBS_BUILD_DIR={str(obs_build_dir)}",
+		f"-Dw32-pthreads_DIR={(obs_build_dir / 'deps' / 'w32-pthreads').as_posix()}",
 		f"-DOBS_DEPS_DIR={str(obs_deps_dir)}",
+		f"-DCMAKE_MODULE_PATH={(obs_studio_src / 'cmake' / 'finders').as_posix()}",
+		f"-Dobs-frontend-api_DIR={(obs_build_dir / 'frontend' / 'api').as_posix()}",
 		f"-DCMAKE_INSTALL_PREFIX:PATH={str(installed_dir)}",
-		get_google_api_key_arg(),
 		str(root_dir.parent.parent),
 	], cwd = build_dir)
 	check_call(spa("cmake --build . --config RelWithDebInfo"), cwd = build_dir)

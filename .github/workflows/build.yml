@@ -1,0 +1,65 @@
+name: Build Plugin
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache OBS Studio
+        uses: actions/cache@v4
+        with:
+          path: CI/http/CI_build/build_deps/obs-studio
+          key: obs-studio-32.1.1-windows-${{ hashFiles('CI/win_build_obs.py') }}
+
+      - name: Cache plibsys
+        uses: actions/cache@v4
+        with:
+          path: CI/http/CI_build/plibsys
+          key: plibsys-windows
+
+      - name: Build
+        working-directory: CI/http
+        shell: cmd
+        run: python win_install_script.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-Plugin
+          path: |
+            CI/http/CI_build/release/*.zip
+            CI/http/CI_build/release/*.exe
+
+  build-macos:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache OBS Studio
+        uses: actions/cache@v4
+        with:
+          path: CI/http/CI_build/build_deps/obs-studio
+          key: obs-studio-32.1.1-macos-${{ hashFiles('CI/osx_build_obs.sh') }}
+
+      - name: Build
+        working-directory: CI/http
+        run: bash osx_install_script.sh
+        env:
+          CLEAN_OBS: "1"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacOS-Plugin
+          path: CI/http/CI_build/release/*.zip

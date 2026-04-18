@@ -26,12 +26,34 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "utils.h"
 #include "log.h"
 
+#ifndef _WIN32
 #include <poll.h>
 #include <fcntl.h>
+#endif
 
 #include <json11/json11.hpp>
 using namespace json11;
 
+
+// ---------------------------------------------------------------------------
+// Platform helpers
+// ---------------------------------------------------------------------------
+
+static int ws_poll_socket(curl_socket_t fd, short events, int timeout_ms) {
+#ifdef _WIN32
+    WSAPOLLFD pfd;
+    pfd.fd = fd;
+    pfd.events = events;
+    pfd.revents = 0;
+    return WSAPoll(&pfd, 1, timeout_ms);
+#else
+    struct pollfd pfd;
+    pfd.fd = (int) fd;
+    pfd.events = events;
+    pfd.revents = 0;
+    return poll(&pfd, 1, timeout_ms);
+#endif
+}
 
 // ---------------------------------------------------------------------------
 // Base64 encoder (for WebSocket key)
@@ -184,9 +206,14 @@ bool DeepgramCaptionStream::curl_connect() {
     }
 
     // non-blocking for the event loop
+#ifdef _WIN32
+    u_long mode = 1;
+    ioctlsocket(sockfd, FIONBIO, &mode);
+#else
     int flags = fcntl((int) sockfd, F_GETFL, 0);
     if (flags >= 0)
         fcntl((int) sockfd, F_SETFL, flags | O_NONBLOCK);
+#endif
 
     debug_log("Deepgram TLS connected");
     return true;
@@ -205,11 +232,7 @@ bool DeepgramCaptionStream::send_all(const char *data, size_t len) {
         if (rc == CURLE_OK) {
             sent += n;
         } else if (rc == CURLE_AGAIN) {
-            struct pollfd pfd;
-            pfd.fd = (int) sockfd;
-            pfd.events = POLLOUT;
-            pfd.revents = 0;
-            if (poll(&pfd, 1, (int) settings.send_timeout_ms) <= 0)
+            if (ws_poll_socket(sockfd, POLLOUT, (int) settings.send_timeout_ms) <= 0)
                 return false;
         } else {
             error_log("send error: %s", curl_easy_strerror(rc));
@@ -268,9 +291,10 @@ bool DeepgramCaptionStream::ws_handshake() {
     string ws_key = generate_ws_key();
 
     // Build upgrade path with Deepgram query params
+    string model = settings.model.empty() ? "nova-3" : settings.model;
     string path = "/v1/listen?"
                   "encoding=linear16&sample_rate=16000&channels=1"
-                  "&interim_results=true&punctuate=true&model=nova-2";
+                  "&interim_results=true&punctuate=true&model=" + model;
 
     if (!settings.language.empty()) {
         path += "&language=";
@@ -279,6 +303,38 @@ bool DeepgramCaptionStream::ws_handshake() {
 
     if (settings.profanity_filter)
         path += "&profanity_filter=true";
+
+    // Add keyword/keyterm boost (comma-separated).
+    // Nova 3 uses "keyterm=" (up to 500 tokens), older models use "keywords=" (up to 100).
+    if (!settings.keywords.empty()) {
+        bool is_nova3 = (model.find("nova-3") != string::npos);
+        const char *param = is_nova3 ? "&keyterm=" : "&keywords=";
+        int max_count = is_nova3 ? 500 : 100;
+
+        CURL *esc = curl_easy_init();
+        std::istringstream ks(settings.keywords);
+        string kw;
+        int kw_count = 0;
+        while (std::getline(ks, kw, ',') && kw_count < max_count) {
+            size_t start = kw.find_first_not_of(" \t");
+            size_t end = kw.find_last_not_of(" \t");
+            if (start != string::npos) {
+                string trimmed = kw.substr(start, end - start + 1);
+                char *escaped = curl_easy_escape(esc, trimmed.c_str(), (int)trimmed.size());
+                if (escaped) {
+                    path += param;
+                    path += escaped;
+                    curl_free(escaped);
+                    kw_count++;
+                }
+            }
+        }
+        if (esc) curl_easy_cleanup(esc);
+    }
+
+    // Use fprintf so it's visible regardless of OBS log level
+    fprintf(stderr, "[Deepgram] model=%s path=%s\n", model.c_str(), path.c_str());
+    fflush(stderr);
 
     string request = "GET " + path + " HTTP/1.1\r\n"
                      "Host: api.deepgram.com\r\n"
@@ -307,11 +363,7 @@ bool DeepgramCaptionStream::ws_handshake() {
             return false;
         }
 
-        struct pollfd pfd;
-        pfd.fd = (int) sockfd;
-        pfd.events = POLLIN;
-        pfd.revents = 0;
-        poll(&pfd, 1, (int) std::min(remaining_ms, (long long) 1000));
+        ws_poll_socket(sockfd, POLLIN, (int) std::min(remaining_ms, (long long) 1000));
 
         char buf[4096];
         size_t nread = 0;
@@ -494,11 +546,7 @@ void DeepgramCaptionStream::_stream_run() {
             process_incoming();
 
         // 4. brief wait for more data or audio
-        struct pollfd pfd;
-        pfd.fd = (int) sockfd;
-        pfd.events = POLLIN;
-        pfd.revents = 0;
-        poll(&pfd, 1, 20); // 20 ms
+        ws_poll_socket(sockfd, POLLIN, 20);
     }
 
     // graceful Deepgram close
