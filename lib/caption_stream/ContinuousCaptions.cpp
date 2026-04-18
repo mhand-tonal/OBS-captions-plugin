@@ -22,6 +22,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "speech_apis/google_http_older/CaptionStream.h"
 #include "speech_apis/deepgram_websocket/CaptionStream.h"
+#include "speech_apis/local_websocket/CaptionStream.h"
 
 static std::shared_ptr<CaptionStream> make_caption_stream(SpeechApiProvider provider,
                                                            const CaptionStreamSettings &settings) {
@@ -29,6 +30,9 @@ static std::shared_ptr<CaptionStream> make_caption_stream(SpeechApiProvider prov
         case SPEECH_API_DEEPGRAM_WEBSOCKET:
             debug_log("creating DeepgramCaptionStream");
             return std::make_shared<DeepgramCaptionStream>(settings);
+        case SPEECH_API_LOCAL_WEBSOCKET:
+            debug_log("creating LocalWebSocketCaptionStream");
+            return std::make_shared<LocalWebSocketCaptionStream>(settings);
         case SPEECH_API_GOOGLE_HTTP:
         default:
             debug_log("creating GoogleHttpCaptionStream");

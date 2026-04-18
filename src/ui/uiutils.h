@@ -115,6 +115,7 @@ static void setup_combobox_speech_api_provider(QComboBox &comboBox) {
 
     comboBox.addItem("Google Cloud Speech", SPEECH_API_GOOGLE_HTTP);
     comboBox.addItem("Deepgram", SPEECH_API_DEEPGRAM_WEBSOCKET);
+    comboBox.addItem("Local WebSocket (Moonshine, Parakeet, Whisper, sherpa-onnx…)", SPEECH_API_LOCAL_WEBSOCKET);
 }
 
 static void setup_combobox_deepgram_model(QComboBox &comboBox) {

@@ -266,6 +266,16 @@ bool SourceCaptioner::_start_caption_stream(bool restart_stream) {
                          settings_copy.stream_settings.model.c_str(),
                          settings_copy.stream_settings.keywords.c_str());
 
+                // Pre-emptive connection cycling is only needed for Google
+                // Cloud Speech, which has a 5-minute hard session cap. Every
+                // other provider (Deepgram, Local WebSocket) keeps a single
+                // connection open for the full session — cycling would
+                // introduce avoidable reconnect churn and model re-warmup.
+                if (settings_copy.provider != SPEECH_API_GOOGLE_HTTP) {
+                    settings_copy.connect_second_after_secs = 0;
+                    settings_copy.switchover_second_after_secs = 0;
+                }
+
                 auto caption_cb = std::bind(&SourceCaptioner::on_caption_text_callback, this, std::placeholders::_1, std::placeholders::_2);
                 continuous_captions = std::make_unique<ContinuousCaptions>(settings_copy);
                 continuous_captions->on_caption_cb_handle.set(caption_cb, true);

@@ -212,6 +212,13 @@ static void enforce_CaptionPluginSettings_values(CaptionPluginSettings &settings
     if (source_settings.stream_settings.stream_settings.profanity_filter == 2)
         source_settings.stream_settings.stream_settings.profanity_filter = 1;
 
+    if (source_settings.stream_settings.provider < SPEECH_API_GOOGLE_HTTP
+        || source_settings.stream_settings.provider > SPEECH_API_LOCAL_WEBSOCKET)
+        source_settings.stream_settings.provider = SPEECH_API_GOOGLE_HTTP;
+
+    if (source_settings.stream_settings.stream_settings.server_url.empty())
+        source_settings.stream_settings.stream_settings.server_url = "ws://localhost:6006";
+
     enforce_FileOutputSettings_values(settings.source_cap_settings.file_output_settings);
 }
 
@@ -340,6 +347,7 @@ static CaptionPluginSettings get_CaptionPluginSettings_from_data(obs_data_t *loa
     obs_data_set_default_string(load_data, "custom_api_key", source_settings.stream_settings.stream_settings.api_key.c_str());
     obs_data_set_default_string(load_data, "deepgram_model", source_settings.stream_settings.stream_settings.model.c_str());
     obs_data_set_default_string(load_data, "deepgram_keywords", source_settings.stream_settings.stream_settings.keywords.c_str());
+    obs_data_set_default_string(load_data, "local_ws_server_url", source_settings.stream_settings.stream_settings.server_url.c_str());
 
     obs_data_set_default_double(load_data, "caption_timeout_secs", source_settings.format_settings.caption_timeout_seconds);
     obs_data_set_default_bool(load_data, "caption_timeout_enabled", source_settings.format_settings.caption_timeout_enabled);
@@ -420,6 +428,14 @@ static CaptionPluginSettings get_CaptionPluginSettings_from_data(obs_data_t *loa
     source_settings.stream_settings.stream_settings.api_key = obs_data_get_string(load_data, "custom_api_key");
     source_settings.stream_settings.stream_settings.model = obs_data_get_string(load_data, "deepgram_model");
     source_settings.stream_settings.stream_settings.keywords = obs_data_get_string(load_data, "deepgram_keywords");
+    // Read the new key; fall back to the old sherpa_onnx_server_url so existing
+    // saved settings don't lose their configured URL after the rename.
+    source_settings.stream_settings.stream_settings.server_url = obs_data_get_string(load_data, "local_ws_server_url");
+    if (source_settings.stream_settings.stream_settings.server_url.empty()) {
+        const char *legacy = obs_data_get_string(load_data, "sherpa_onnx_server_url");
+        if (legacy && *legacy)
+            source_settings.stream_settings.stream_settings.server_url = legacy;
+    }
 
     source_settings.format_settings.caption_timeout_enabled = obs_data_get_bool(load_data, "caption_timeout_enabled");
     source_settings.format_settings.caption_timeout_seconds = obs_data_get_double(load_data, "caption_timeout_secs");
@@ -519,6 +535,7 @@ static void set_CaptionPluginSettings_on_data(obs_data_t *save_data, const Capti
     obs_data_set_string(save_data, "custom_api_key", source_settings.stream_settings.stream_settings.api_key.c_str());
     obs_data_set_string(save_data, "deepgram_model", source_settings.stream_settings.stream_settings.model.c_str());
     obs_data_set_string(save_data, "deepgram_keywords", source_settings.stream_settings.stream_settings.keywords.c_str());
+    obs_data_set_string(save_data, "local_ws_server_url", source_settings.stream_settings.stream_settings.server_url.c_str());
 
     obs_data_set_bool(save_data, "caption_timeout_enabled", source_settings.format_settings.caption_timeout_enabled);
     obs_data_set_double(save_data, "caption_timeout_secs", source_settings.format_settings.caption_timeout_seconds);

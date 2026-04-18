@@ -484,6 +484,26 @@
                 </property>
                </widget>
               </item>
+              <item row="10" column="0">
+               <widget class="QLabel" name="localWsServerUrlLabel">
+                <property name="text">
+                 <string>Server URL</string>
+                </property>
+               </widget>
+              </item>
+              <item row="10" column="1">
+               <widget class="QLineEdit" name="localWsServerUrlLineEdit">
+                <property name="minimumSize">
+                 <size>
+                  <width>250</width>
+                  <height>0</height>
+                 </size>
+                </property>
+                <property name="placeholderText">
+                 <string>ws://localhost:6006</string>
+                </property>
+               </widget>
+              </item>
              </layout>
             </widget>
            </item>
@@ -641,7 +661,7 @@
                  <string> sec</string>
                 </property>
                 <property name="minimum">
-                 <double>0.100000000000000</double>
+                 <double>0.000000000000000</double>
                 </property>
                 <property name="maximum">
                  <double>5.000000000000000</double>

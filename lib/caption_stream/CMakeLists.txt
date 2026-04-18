@@ -5,9 +5,10 @@ message("BUILD_SHARED_LIBS: ${BUILD_SHARED_LIBS}")
 include_directories("thirdparty")
 include_directories(".")
 
-# Always build both speech API backends for runtime selection
+# Always build all speech API backends for runtime selection
 add_subdirectory(speech_apis/google_http_older)
 add_subdirectory(speech_apis/deepgram_websocket)
+add_subdirectory(speech_apis/local_websocket)
 
 set(caption_stream_SOURCES
         utils.h
@@ -31,7 +32,7 @@ add_library(caption_stream STATIC
 
 target_include_directories(caption_stream PUBLIC ./)
 target_include_directories(caption_stream PUBLIC thirdparty/)
-target_link_libraries(caption_stream speech_api_google_http speech_api_deepgram_ws)
+target_link_libraries(caption_stream speech_api_google_http speech_api_deepgram_ws speech_api_local_ws)
 
 if (WIN32 AND NOT BUILD_SHARED_LIBS)
     message(BUILD_SHARED_LIBS: setting win flags)

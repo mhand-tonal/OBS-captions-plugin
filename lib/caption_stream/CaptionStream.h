@@ -42,6 +42,7 @@ typedef std::function<void(const CaptionResult &caption_result)> caption_text_ca
 enum SpeechApiProvider {
     SPEECH_API_GOOGLE_HTTP = 0,
     SPEECH_API_DEEPGRAM_WEBSOCKET = 1,
+    SPEECH_API_LOCAL_WEBSOCKET = 2,
 };
 
 struct CaptionStreamSettings {
@@ -57,6 +58,7 @@ struct CaptionStreamSettings {
     string api_key;
     string model;
     string keywords; // comma-separated boost terms
+    string server_url; // ws:// URL for local WebSocket ASR sidecar
 
     CaptionStreamSettings(
             uint connect_timeout_ms,
@@ -69,7 +71,8 @@ struct CaptionStreamSettings {
             int profanity_filter,
             const string &api_key,
             const string &model = "nova-3",
-            const string &keywords = ""
+            const string &keywords = "",
+            const string &server_url = "ws://localhost:6006"
     ) :
             connect_timeout_ms(connect_timeout_ms),
             send_timeout_ms(send_timeout_ms),
@@ -81,7 +84,8 @@ struct CaptionStreamSettings {
             profanity_filter(profanity_filter),
             api_key(api_key),
             model(model),
-            keywords(keywords) {}
+            keywords(keywords),
+            server_url(server_url) {}
 
     bool operator==(const CaptionStreamSettings &rhs) const {
         return connect_timeout_ms == rhs.connect_timeout_ms &&
@@ -93,7 +97,8 @@ struct CaptionStreamSettings {
                profanity_filter == rhs.profanity_filter &&
                api_key == rhs.api_key &&
                model == rhs.model &&
-               keywords == rhs.keywords;
+               keywords == rhs.keywords &&
+               server_url == rhs.server_url;
     }
 
     bool operator!=(const CaptionStreamSettings &rhs) const {

@@ -179,9 +179,6 @@ CaptionSettingsWidget::CaptionSettingsWidget(const CaptionPluginSettings &latest
     this->verticalLayoutTabTextFiltering->setAlignment(Qt::AlignTop);
     this->updateUi();
 
-    this->apiKeyLabel->show();
-    this->apiKeyWidget->show();
-
     captionWhenComboBox->addItem("Caption Source is heard on stream", "own_source");
     captionWhenComboBox->addItem("Mute Source is heard on stream", "other_mute_source");
 
@@ -189,12 +186,21 @@ CaptionSettingsWidget::CaptionSettingsWidget(const CaptionPluginSettings &latest
     setup_combobox_deepgram_model(*deepgramModelComboBox);
 
     auto update_provider_visibility = [this]() {
-        bool is_deepgram = speechApiProviderComboBox->currentData().toInt() == SPEECH_API_DEEPGRAM_WEBSOCKET;
+        const int provider = speechApiProviderComboBox->currentData().toInt();
+        const bool is_deepgram = provider == SPEECH_API_DEEPGRAM_WEBSOCKET;
+        const bool is_local_ws = provider == SPEECH_API_LOCAL_WEBSOCKET;
+        const bool needs_api_key = !is_local_ws;
+
+        apiKeyLabel->setVisible(needs_api_key);
+        apiKeyWidget->setVisible(needs_api_key);
         deepgramModelLabel->setVisible(is_deepgram);
         deepgramModelComboBox->setVisible(is_deepgram);
         deepgramKeywordsLabel->setVisible(is_deepgram);
         deepgramKeywordsLineEdit->setVisible(is_deepgram);
+        localWsServerUrlLabel->setVisible(is_local_ws);
+        localWsServerUrlLineEdit->setVisible(is_local_ws);
     };
+    update_provider_visibility();
     QObject::connect(speechApiProviderComboBox, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
                      this, [update_provider_visibility](int) { update_provider_visibility(); });
 
@@ -484,6 +490,12 @@ void CaptionSettingsWidget::accept_current_settings() {
         }
     }
     source_settings.stream_settings.stream_settings.keywords = deepgramKeywordsLineEdit->text().toStdString();
+    {
+        string url = localWsServerUrlLineEdit->text().trimmed().toStdString();
+        if (url.empty())
+            url = "ws://localhost:6006";
+        source_settings.stream_settings.stream_settings.server_url = url;
+    }
 
     source_settings.format_settings.caption_line_count = lineCountSpinBox->value();
     source_settings.format_settings.capitalization = (CapitalizationType) capitalizationComboBox->currentData().toInt();
@@ -603,13 +615,24 @@ void CaptionSettingsWidget::updateUi() {
             deepgramModelComboBox->setCurrentText(model);
     }
     deepgramKeywordsLineEdit->setText(QString::fromStdString(source_settings.stream_settings.stream_settings.keywords));
+    localWsServerUrlLineEdit->setText(QString::fromStdString(source_settings.stream_settings.stream_settings.server_url));
 
-    // Update Deepgram-specific field visibility
-    bool is_deepgram = speechApiProviderComboBox->currentData().toInt() == SPEECH_API_DEEPGRAM_WEBSOCKET;
-    deepgramModelLabel->setVisible(is_deepgram);
-    deepgramModelComboBox->setVisible(is_deepgram);
-    deepgramKeywordsLabel->setVisible(is_deepgram);
-    deepgramKeywordsLineEdit->setVisible(is_deepgram);
+    // Update provider-specific field visibility
+    {
+        const int provider = speechApiProviderComboBox->currentData().toInt();
+        const bool is_deepgram = provider == SPEECH_API_DEEPGRAM_WEBSOCKET;
+        const bool is_local_ws = provider == SPEECH_API_LOCAL_WEBSOCKET;
+        const bool needs_api_key = !is_local_ws;
+
+        apiKeyLabel->setVisible(needs_api_key);
+        apiKeyWidget->setVisible(needs_api_key);
+        deepgramModelLabel->setVisible(is_deepgram);
+        deepgramModelComboBox->setVisible(is_deepgram);
+        deepgramKeywordsLabel->setVisible(is_deepgram);
+        deepgramKeywordsLineEdit->setVisible(is_deepgram);
+        localWsServerUrlLabel->setVisible(is_local_ws);
+        localWsServerUrlLineEdit->setVisible(is_local_ws);
+    }
 
     lineCountSpinBox->setValue(source_settings.format_settings.caption_line_count);
     insertLinebreaksCheckBox->setChecked(source_settings.format_settings.caption_insert_newlines);
