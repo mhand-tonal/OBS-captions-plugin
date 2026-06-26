@@ -413,10 +413,6 @@ bool GoogleHttpCaptionStream::is_stopped() {
     return stopped;
 }
 
-bool GoogleHttpCaptionStream::is_connected() {
-    return started && !stopped;
-}
-
 bool GoogleHttpCaptionStream::queue_audio_data(const char *audio_data, const uint data_size) {
     if (is_stopped())
         return false;

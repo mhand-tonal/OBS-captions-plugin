@@ -127,7 +127,6 @@ public:
     virtual void stop() = 0;
     virtual bool is_stopped() = 0;
     virtual bool is_started() = 0;
-    virtual bool is_connected() = 0;
     virtual bool queue_audio_data(const char *data, const uint data_size) = 0;
 };
 

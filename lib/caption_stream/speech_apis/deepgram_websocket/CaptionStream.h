@@ -61,8 +61,6 @@ public:
 
     void stop() override;
 
-    bool is_connected() override;
-
     bool is_started() override;
 
     bool is_stopped() override;
