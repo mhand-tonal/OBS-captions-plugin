@@ -185,24 +185,9 @@ CaptionSettingsWidget::CaptionSettingsWidget(const CaptionPluginSettings &latest
     setup_combobox_speech_api_provider(*speechApiProviderComboBox);
     setup_combobox_deepgram_model(*deepgramModelComboBox);
 
-    auto update_provider_visibility = [this]() {
-        const int provider = speechApiProviderComboBox->currentData().toInt();
-        const bool is_deepgram = provider == SPEECH_API_DEEPGRAM_WEBSOCKET;
-        const bool is_local_ws = provider == SPEECH_API_LOCAL_WEBSOCKET;
-        const bool needs_api_key = !is_local_ws;
-
-        apiKeyLabel->setVisible(needs_api_key);
-        apiKeyWidget->setVisible(needs_api_key);
-        deepgramModelLabel->setVisible(is_deepgram);
-        deepgramModelComboBox->setVisible(is_deepgram);
-        deepgramKeywordsLabel->setVisible(is_deepgram);
-        deepgramKeywordsLineEdit->setVisible(is_deepgram);
-        localWsServerUrlLabel->setVisible(is_local_ws);
-        localWsServerUrlLineEdit->setVisible(is_local_ws);
-    };
-    update_provider_visibility();
+    update_provider_field_visibility();
     QObject::connect(speechApiProviderComboBox, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
-                     this, [update_provider_visibility](int) { update_provider_visibility(); });
+                     this, [this](int) { update_provider_field_visibility(); });
 
     setup_combobox_languages(*languageComboBox);
     setup_combobox_profanity(*profanityFilterComboBox);
@@ -321,6 +306,22 @@ void CaptionSettingsWidget::update_stream_output_mode_visibility() {
     const bool show_dwell = (mode == STREAM_OUTPUT_MODE_SUBTITLE_BOX);
     cardDwellLabel->setVisible(show_dwell);
     cardDwellSpinBox->setVisible(show_dwell);
+}
+
+void CaptionSettingsWidget::update_provider_field_visibility() {
+    const int provider = speechApiProviderComboBox->currentData().toInt();
+    const bool is_deepgram = provider == SPEECH_API_DEEPGRAM_WEBSOCKET;
+    const bool is_local_ws = provider == SPEECH_API_LOCAL_WEBSOCKET;
+    const bool needs_api_key = !is_local_ws;
+
+    apiKeyLabel->setVisible(needs_api_key);
+    apiKeyWidget->setVisible(needs_api_key);
+    deepgramModelLabel->setVisible(is_deepgram);
+    deepgramModelComboBox->setVisible(is_deepgram);
+    deepgramKeywordsLabel->setVisible(is_deepgram);
+    deepgramKeywordsLineEdit->setVisible(is_deepgram);
+    localWsServerUrlLabel->setVisible(is_local_ws);
+    localWsServerUrlLineEdit->setVisible(is_local_ws);
 }
 
 void CaptionSettingsWidget::update_sources_visibilities() {
@@ -618,21 +619,7 @@ void CaptionSettingsWidget::updateUi() {
     localWsServerUrlLineEdit->setText(QString::fromStdString(source_settings.stream_settings.stream_settings.server_url));
 
     // Update provider-specific field visibility
-    {
-        const int provider = speechApiProviderComboBox->currentData().toInt();
-        const bool is_deepgram = provider == SPEECH_API_DEEPGRAM_WEBSOCKET;
-        const bool is_local_ws = provider == SPEECH_API_LOCAL_WEBSOCKET;
-        const bool needs_api_key = !is_local_ws;
-
-        apiKeyLabel->setVisible(needs_api_key);
-        apiKeyWidget->setVisible(needs_api_key);
-        deepgramModelLabel->setVisible(is_deepgram);
-        deepgramModelComboBox->setVisible(is_deepgram);
-        deepgramKeywordsLabel->setVisible(is_deepgram);
-        deepgramKeywordsLineEdit->setVisible(is_deepgram);
-        localWsServerUrlLabel->setVisible(is_local_ws);
-        localWsServerUrlLineEdit->setVisible(is_local_ws);
-    }
+    update_provider_field_visibility();
 
     lineCountSpinBox->setValue(source_settings.format_settings.caption_line_count);
     insertLinebreaksCheckBox->setChecked(source_settings.format_settings.caption_insert_newlines);
