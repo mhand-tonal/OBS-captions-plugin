@@ -10,9 +10,6 @@
 #include "SourceCaptioner.h"
 
 static void caption_output_writer_loop(shared_ptr<CaptionOutputControl<int>> control, bool to_stream) {
-    // TODO: minimum_time_between_captions arg to optionally hold next caption if still too soon after previous one
-    // just skip in between ones, maybe option to fall behind instead as well?
-
     string to_what(to_stream ? "streaming" : "recording");
     info_log("caption_output_writer_loop %s starting", to_what.c_str());
 
@@ -110,6 +107,7 @@ static void caption_output_writer_loop(shared_ptr<CaptionOutputControl<int>> con
         // to_what.c_str(), waited_left_secs, caption_output.output_result->output_line.c_str());
 
         const char* txt = caption_output.output_result->output_line.c_str();
+
         if (to_stream) {
             obs_output_t *ignore_output = obs_frontend_get_recording_output();
             struct Ctx {

@@ -8,7 +8,7 @@ function build_obs() {
 
   BUILD_OBS__UNPACKED_DEPS_DIR="$(pwd)/unpacked_deps"
   BUILD_OBS__SRC_DIR="$(pwd)/src"
-  BUILD_OBS__BUILD_DIR="$(pwd)/src/build"
+  BUILD_OBS__BUILD_DIR="$(pwd)/src/build_macos"
   BUILD_OBS__INSTALLED_DIR="$BUILD_OBS__BUILD_DIR"
   echo "BUILD_OBS__SRC_DIR: $BUILD_OBS__SRC_DIR"
   echo "BUILD_OBS__UNPACKED_DEPS_DIR: $BUILD_OBS__UNPACKED_DEPS_DIR"
@@ -25,17 +25,17 @@ function build_obs() {
     echo getting src
     git clone  https://github.com/obsproject/obs-studio.git src
     cd src
-    git checkout 30.0.0
+    git checkout 32.1.1
     git submodule update --init --recursive
     cd ..
   fi
 
   if [ ! -e deps.tar.xz ]; then
-    wget -c https://github.com/obsproject/obs-deps/releases/download/2023-11-03/macos-deps-2023-11-03-universal.tar.xz -O deps.tar.xz
+    curl -L -o deps.tar.xz https://github.com/obsproject/obs-deps/releases/download/2025-08-23/macos-deps-2025-08-23-universal.tar.xz
   fi
 
   if [ ! -e deps.qt.tar.xz ]; then
-    wget -c https://github.com/obsproject/obs-deps/releases/download/2023-11-03/macos-deps-qt6-2023-11-03-universal.tar.xz -O deps.qt.tar.xz
+    curl -L -o deps.qt.tar.xz https://github.com/obsproject/obs-deps/releases/download/2025-08-23/macos-deps-qt6-2025-08-23-universal.tar.xz
   fi
 
   if [ ! -d unpacked_deps ]; then
@@ -44,25 +44,25 @@ function build_obs() {
     tar -k -xvf deps.qt.tar.xz -C unpacked_deps
   fi
 
+  # CMake 4.x doesn't auto-detect Swift via the Xcode generator.
+  # OBS's libobs-metal is pure Swift — tell cmake about it.
+  sed -i '' '1a\
+enable_language(Swift)
+' src/libobs-metal/CMakeLists.txt
+
   echo building OBS && pwd
   mkdir -p build_installed
   cd src
-  mkdir -p build && cd build && pwd
-  $CMAKE \
+
+  $CMAKE --preset macos \
     -DCMAKE_OSX_ARCHITECTURES="$OSX_ARCHITECTURES" \
-    -DCMAKE_OSX_DEPLOYMENT_TARGET="13.0" \
-    -DCMAKE_BUILD_TYPE=Release \
     -DENABLE_BROWSER=OFF \
     -DENABLE_PLUGINS=OFF \
     -DENABLE_UI=OFF \
-    -DENABLE_SCRIPTING=OFF \
-    -DQT_VERSION=6 \
-    -DCMAKE_PREFIX_PATH="$BUILD_OBS__UNPACKED_DEPS_DIR" \
-    -DCMAKE_INSTALL_PREFIX:PATH="$BUILD_OBS__INSTALLED_DIR" \
-    ..
+    -DENABLE_SCRIPTING=OFF
 
-  $CMAKE --build . --config Release -t obs-frontend-api
-  $CMAKE --install . --config Release --component obs_libraries
+  $CMAKE --build build_macos --config Release -t obs-frontend-api
+  $CMAKE --install build_macos --config Release --component obs_libraries
 
   cd ../
   du -chd1 && pwd

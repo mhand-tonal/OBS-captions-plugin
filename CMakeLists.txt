@@ -23,23 +23,6 @@ if (USE_DEVMODE)
     set(DEVMODE ON)
 endif ()
 
-set(ENABLE_CUSTOM_API_KEY OFF CACHE BOOL "set API key via settings UI field")
-set(GOOGLE_API_KEY "" CACHE STRING "google api key with speech API enabled")
-
-if (GOOGLE_API_KEY AND ENABLE_CUSTOM_API_KEY)
-    message(FATAL_ERROR "both GOOGLE_API_KEY and ENABLE_CUSTOM_API_KEY set, not supported")
-endif ()
-
-if (ENABLE_CUSTOM_API_KEY)
-    message("ENABLE_CUSTOM_API_KEY on, using UI api key")
-    set(PLUGIN_COMPILE_DEFINITIONS ENABLE_CUSTOM_API_KEY=1)
-elseif (GOOGLE_API_KEY)
-    message("using fixed GOOGLE_API_KEY")
-    set(PLUGIN_COMPILE_DEFINITIONS GOOGLE_API_KEY_STR="${GOOGLE_API_KEY}")
-else ()
-    message(FATAL_ERROR "no GOOGLE_API_KEY set and no ENABLE_CUSTOM_API_KEY=ON either")
-endif ()
-
 add_compile_definitions(VERSION_STRING="${VERSION_STRING}")
 
 if (NOT OBS_BUILD_DIR)
@@ -52,13 +35,13 @@ if (DEVMODE)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror -Wno-deprecated-declarations")
     message("CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS}")
 
-    target_compile_definitions(speech_api_stream PRIVATE GOOGLE="www.google.com" PORTUP=80 PORTDOWN=80)
-    #    target_compile_definitions(speech_api_stream PRIVATE GOOGLE="127.0.0.1" PORTUP=9125 PORTDOWN=9125)
+    target_compile_definitions(speech_api_google_http PRIVATE GOOGLE="www.google.com" PORTUP=80 PORTDOWN=80)
+    #    target_compile_definitions(speech_api_google_http PRIVATE GOOGLE="127.0.0.1" PORTUP=9125 PORTDOWN=9125)
     message("using api: localhost")
 
     add_compile_definitions(USE_DEVMODE=1)
 else ()
-    target_compile_definitions(speech_api_stream PRIVATE GOOGLE="www.google.com" PORTUP=80 PORTDOWN=80)
+    target_compile_definitions(speech_api_google_http PRIVATE GOOGLE="www.google.com" PORTUP=80 PORTDOWN=80)
     message("using api: google")
 endif ()
 
@@ -134,11 +117,6 @@ if (WIN32 AND NOT BUILD_SHARED_LIBS)
             message("after : ${flag_var}: " ${${flag_var}}" ")
         endif ()
     endforeach ()
-endif ()
-
-if (PLUGIN_COMPILE_DEFINITIONS)
-    #    message(" PLUGIN_COMPILE_DEFINITIONS ${PLUGIN_COMPILE_DEFINITIONS}")
-    target_compile_definitions(obs_google_caption_plugin PRIVATE ${PLUGIN_COMPILE_DEFINITIONS})
 endif ()
 
 install(TARGETS obs_google_caption_plugin DESTINATION lib)

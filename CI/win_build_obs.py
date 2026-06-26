@@ -8,8 +8,8 @@ from pathlib import Path
 
 from win_shared import check_call, download, unzip, spa
 
-DEPS = "https://github.com/obsproject/obs-deps/releases/download/2023-11-03/windows-deps-2023-11-03-x64.zip"
-DEPS_QT = "https://github.com/obsproject/obs-deps/releases/download/2023-11-03/windows-deps-qt6-2023-11-03-x64.zip"
+DEPS = "https://github.com/obsproject/obs-deps/releases/download/2025-08-23/windows-deps-2025-08-23-x64.zip"
+DEPS_QT = "https://github.com/obsproject/obs-deps/releases/download/2025-08-23/windows-deps-qt6-2025-08-23-x64.zip"
 
 CMAKE_VS_ARGS = ["-G", "Visual Studio 17 2022", "-A", "x64"]
 
@@ -47,7 +47,7 @@ def setup_obs(obs_studio: Path, clean_afterwards: bool):
 
 	if not obs_studio_src.exists():
 		check_call([*spa("git clone https://github.com/obsproject/obs-studio.git"), str(obs_studio_src)])
-		check_call([*spa("git checkout 30.0.0")], cwd = obs_studio_src)
+		check_call([*spa("git checkout 32.1.1")], cwd = obs_studio_src)
 		check_call([*spa("git submodule update --init --recursive")], cwd = obs_studio_src)
 
 	build_dir.mkdir(True, exist_ok = True)
@@ -84,7 +84,24 @@ def setup_obs(obs_studio: Path, clean_afterwards: bool):
 
 
 def patch_w32(installed_dir: Path):
-	target_file = installed_dir.joinpath("cmake\\libobsTargets.cmake")
+	# Patch libobsTargets.cmake to downgrade FATAL_ERROR to WARNING
+	# for missing targets (we only build obs-frontend-api, not everything).
+	# OBS 32 may install to different paths or not need the patch at all.
+	candidates = [
+		installed_dir.joinpath("cmake", "libobsTargets.cmake"),
+		installed_dir.joinpath("lib", "cmake", "libobs", "libobsTargets.cmake"),
+		installed_dir.joinpath("libobs", "libobsTargets.cmake"),
+	]
+	target_file = None
+	for c in candidates:
+		if c.exists():
+			target_file = c
+			break
+
+	if target_file is None:
+		print("libobsTargets.cmake not found in installed dir, skipping patch (may not be needed for OBS 32+)")
+		return
+
 	full_contents = target_file.read_text()
 	new_contents = full_contents
 	ok = False
@@ -107,7 +124,8 @@ def patch_w32(installed_dir: Path):
 			ok = True
 
 	if not ok:
-		raise ValueError("invalid libobsTargets.cmake file", full_contents)
+		print("WARNING: libobsTargets.cmake patch patterns not found, skipping")
+		return
 
 	target_file.write_text(new_contents)
 	print("patched libobsTargets.cmake", target_file)

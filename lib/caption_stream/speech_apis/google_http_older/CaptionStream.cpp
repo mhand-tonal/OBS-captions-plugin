@@ -27,7 +27,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //#define BUFFER_SIZE 1024
 #define BUFFER_SIZE 4096
 
-#include <json11.cpp>
+#include <json11/json11.hpp>
 using namespace json11;
 
 static CaptionResult *parse_caption_obj(const string &msg_obj,
@@ -108,7 +108,7 @@ int read_until_contains(TcpConnection *connection, string &buffer, const char *r
 }
 
 
-CaptionStream::CaptionStream(
+GoogleHttpCaptionStream::GoogleHttpCaptionStream(
         CaptionStreamSettings settings
 ) : upstream(TcpConnection(GOOGLE, PORTUP)),
     downstream(TcpConnection(GOOGLE, PORTDOWN)),
@@ -123,7 +123,7 @@ CaptionStream::CaptionStream(
 }
 
 
-bool CaptionStream::start(std::shared_ptr<CaptionStream> self) {
+bool GoogleHttpCaptionStream::start(std::shared_ptr<CaptionStream> self) {
     // requires the CaptionStream to have been made as shared_pointer and passed to itself to start
     // kept by each thread to ensure object not deconstructed before threads done
     // I'm sure there are much nicer ways to do this but I don't know any of them so here we are
@@ -135,26 +135,26 @@ bool CaptionStream::start(std::shared_ptr<CaptionStream> self) {
         return false;
 
     started = true;
-    upstream_thread = new thread(&CaptionStream::upstream_run, this, self);
+    upstream_thread = new thread(&GoogleHttpCaptionStream::upstream_run, this, self);
     return true;
 }
 
 
-void CaptionStream::upstream_run(std::shared_ptr<CaptionStream> self) {
+void GoogleHttpCaptionStream::upstream_run(std::shared_ptr<CaptionStream> self) {
     debug_log("starting upstream_run() %s", session_pair.c_str());
     _upstream_run(self);
     stop();
     debug_log("finished upstream_run() %s", session_pair.c_str());
 }
 
-void CaptionStream::downstream_run(std::shared_ptr<CaptionStream> self) {
+void GoogleHttpCaptionStream::downstream_run(std::shared_ptr<CaptionStream> self) {
     debug_log("starting downstream_run() %s", session_pair.c_str());
     _downstream_run();
     stop();
     debug_log("finished downstream_run() %s", session_pair.c_str());
 }
 
-void CaptionStream::_upstream_run(std::shared_ptr<CaptionStream> self) {
+void GoogleHttpCaptionStream::_upstream_run(std::shared_ptr<CaptionStream> self) {
     try {
         upstream.connect(settings.connect_timeout_ms);
 
@@ -208,7 +208,7 @@ void CaptionStream::_upstream_run(std::shared_ptr<CaptionStream> self) {
         return;
     }
 
-    downstream_thread = new thread(&CaptionStream::downstream_run, this, self);
+    downstream_thread = new thread(&GoogleHttpCaptionStream::downstream_run, this, self);
 
     const string crlf("\r\n");
     uint chunk_count = 0;
@@ -252,7 +252,7 @@ void CaptionStream::_upstream_run(std::shared_ptr<CaptionStream> self) {
 }
 
 
-void CaptionStream::_downstream_run() {
+void GoogleHttpCaptionStream::_downstream_run() {
     const uint crlf_len = 2;
 
     if (settings.download_thread_start_delay_ms) {
@@ -409,11 +409,11 @@ void CaptionStream::_downstream_run() {
     }
 };
 
-bool CaptionStream::is_stopped() {
+bool GoogleHttpCaptionStream::is_stopped() {
     return stopped;
 }
 
-bool CaptionStream::queue_audio_data(const char *audio_data, const uint data_size) {
+bool GoogleHttpCaptionStream::queue_audio_data(const char *audio_data, const uint data_size) {
     if (is_stopped())
         return false;
 
@@ -440,7 +440,7 @@ bool CaptionStream::queue_audio_data(const char *audio_data, const uint data_siz
     return true;
 }
 
-string *CaptionStream::dequeue_audio_data(const std::int64_t timeout_us) {
+string *GoogleHttpCaptionStream::dequeue_audio_data(const std::int64_t timeout_us) {
     string *ret;
     if (audio_queue.wait_dequeue_timed(ret, timeout_us))
         return ret;
@@ -449,7 +449,7 @@ string *CaptionStream::dequeue_audio_data(const std::int64_t timeout_us) {
 }
 
 
-void CaptionStream::stop() {
+void GoogleHttpCaptionStream::stop() {
     info_log("stop1! %s", this->session_pair.c_str());
     on_caption_cb_handle.clear();
     stopped = true;
@@ -460,7 +460,7 @@ void CaptionStream::stop() {
 }
 
 
-CaptionStream::~CaptionStream() {
+GoogleHttpCaptionStream::~GoogleHttpCaptionStream() {
     debug_log("~CaptionStream deconstructor %s", this->session_pair.c_str());
     if (!is_stopped())
         stop();
@@ -492,7 +492,7 @@ CaptionStream::~CaptionStream() {
 
 }
 
-bool CaptionStream::is_started() {
+bool GoogleHttpCaptionStream::is_started() {
     return started;
 }
 

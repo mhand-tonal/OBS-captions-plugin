@@ -1,0 +1,14 @@
+CI/http/CI_build/
+CI/grpc/CI_build/
+*.o
+*.so
+*.dylib
+*.dll
+build/
+.DS_Store
+
+# Local ASR sidecar servers (tools/*_stream_server/) — keep sources, ignore venvs/logs
+tools/**/.venv/
+tools/**/server.log
+tools/**/__pycache__/
+tools/**/*.pyc

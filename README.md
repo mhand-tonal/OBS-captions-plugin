@@ -1,7 +1,9 @@
 ## Closed Captioning OBS Plugin
 
-Provides closed captioning via Google Cloud Speech Recognition API as a standalone OBS plugin, no other tools required. 
+Provides closed captioning as a standalone OBS plugin. Speech recognition can run through **Google Cloud Speech**, **Deepgram**, or a **local WebSocket server** (e.g. Whisper/Parakeet/Moonshine running on your own machine) — selectable at runtime in the plugin settings. See [Speech Recognition Providers](#speech-recognition-providers) below.
 It's fully optional to viewers and uses Twitch's built in caption support which works on livestreams and in VODs on PC, Android and iOS, no Twitch extension required.  
+
+> This is a fork of [ratwithacompiler/OBS-captions-plugin](https://github.com/ratwithacompiler/OBS-captions-plugin) adding Deepgram and local WebSocket speech backends. To build from source see [BUILDING.md](./BUILDING.md).
 
 #### Features:
   * Completely optional for viewers
@@ -52,6 +54,27 @@ Captions should be off by default for most viewers but Twitch does sometimes hav
   * If it's already off but viewers still see captions they have to turn it on and off again (appears to be a bug on some iOS versions)
   
 * **On Android** it's `Closed Captions` under the player settings options right beneath the quality selection. The option will only show up once the streamer has talked.
+
+### Speech Recognition Providers
+
+The provider is chosen in the caption settings under **Speech API Provider**. Each provider has its own fields, shown only when selected.
+
+#### Google Cloud Speech
+The original backend. No API key needed in the plugin — it uses Google's free endpoint the same way the upstream plugin does. Good general quality for conversational speech with western character sets.
+
+#### Deepgram
+Cloud speech recognition via Deepgram's streaming WebSocket API. Requires a Deepgram API key.
+
+* **API Key** — your Deepgram API key (from the Deepgram console).
+* **Model** — `Nova 3` (latest, default), `Nova 2`, or `Nova`.
+* **Keywords** — optional comma-separated terms to bias recognition toward (names, jargon, etc.). Nova 3 sends these as `keyterm` (up to 500); older models as `keywords` (up to 100).
+
+#### Local WebSocket (Moonshine, Parakeet, Whisper, sherpa-onnx, …)
+Runs speech recognition on your own machine — no cloud, no per-minute cost. The plugin streams audio to a local WebSocket server and receives caption JSON back.
+
+* **Server URL** — the WebSocket address of your local server (default `ws://localhost:6006`).
+
+The wire protocol is documented in [tools/PROTOCOL.md](./tools/PROTOCOL.md): the plugin sends float32 PCM and expects JSON `{text, segment, is_endpoint, words}` back, so any server emitting that shape works. Several ready-to-run reference servers live under [`tools/`](./tools/) (Moonshine, Parakeet, Whisper, Voxtral), each wrapping a different local ASR model behind the same protocol — start one, point the plugin's Server URL at it, and you can A/B different models by swapping the URL.
 
 ### Installation (Windows):
 

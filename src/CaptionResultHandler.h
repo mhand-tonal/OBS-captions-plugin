@@ -31,6 +31,25 @@ enum CapitalizationType {
     CAPITALIZATION_ALL_LOWERCASE = 2,
 };
 
+enum StreamCaptionOutputMode {
+    STREAM_OUTPUT_MODE_LOW_LATENCY = 0,
+    STREAM_OUTPUT_MODE_DEBOUNCED = 1,
+    STREAM_OUTPUT_MODE_APPEND_ONLY = 2,
+    STREAM_OUTPUT_MODE_GROWING = 3,
+    STREAM_OUTPUT_MODE_SUBTITLE_BOX = 4,
+};
+
+static constexpr double DEFAULT_DEBOUNCE_SECONDS = 0.5;
+static constexpr double MIN_DEBOUNCE_SECONDS = 0.1;
+static constexpr double MAX_DEBOUNCE_SECONDS = 5.0;
+static constexpr double DEFAULT_STABILITY_THRESHOLD = 0.5;
+static constexpr int DEFAULT_WORD_REVEAL_DELAY_MS = 0;
+static constexpr int MIN_WORD_REVEAL_DELAY_MS = 0;
+static constexpr int MAX_WORD_REVEAL_DELAY_MS = 2000;
+static constexpr double DEFAULT_CARD_DWELL_SECONDS = 1.0;
+static constexpr double MIN_CARD_DWELL_SECONDS = 0.0;
+static constexpr double MAX_CARD_DWELL_SECONDS = 3.0;
+
 
 class DefaultReplacer {
 private:
@@ -77,6 +96,11 @@ struct CaptionFormatSettings {
 
     bool caption_timeout_enabled;
     double caption_timeout_seconds;
+    StreamCaptionOutputMode stream_caption_output_mode;
+    double debounce_delay_seconds;
+    double append_stability_threshold;
+    int word_reveal_delay_ms;
+    double card_dwell_seconds;
     DefaultReplacer replacer;
 
     CaptionFormatSettings(
@@ -87,7 +111,12 @@ struct CaptionFormatSettings {
             bool caption_insert_punctuation,
             const DefaultReplacer &replacer,
             bool caption_timeout_enabled,
-            double caption_timeout_seconds
+            double caption_timeout_seconds,
+            StreamCaptionOutputMode stream_caption_output_mode = STREAM_OUTPUT_MODE_LOW_LATENCY,
+            double debounce_delay_seconds = DEFAULT_DEBOUNCE_SECONDS,
+            double append_stability_threshold = DEFAULT_STABILITY_THRESHOLD,
+            int word_reveal_delay_ms = DEFAULT_WORD_REVEAL_DELAY_MS,
+            double card_dwell_seconds = DEFAULT_CARD_DWELL_SECONDS
     ) :
             caption_line_length(caption_line_length),
             caption_line_count(caption_line_count),
@@ -96,7 +125,12 @@ struct CaptionFormatSettings {
             caption_insert_punctuation(caption_insert_punctuation),
             replacer(replacer),
             caption_timeout_enabled(caption_timeout_enabled),
-            caption_timeout_seconds(caption_timeout_seconds) {
+            caption_timeout_seconds(caption_timeout_seconds),
+            stream_caption_output_mode(stream_caption_output_mode),
+            debounce_delay_seconds(debounce_delay_seconds),
+            append_stability_threshold(append_stability_threshold),
+            word_reveal_delay_ms(word_reveal_delay_ms),
+            card_dwell_seconds(card_dwell_seconds) {
     }
 
     void print(const char *line_prefix = "") {
@@ -106,6 +140,11 @@ struct CaptionFormatSettings {
         printf("%s  capitalization: %d\n", line_prefix, capitalization);
         printf("%s  caption_insert_newlines: %d\n", line_prefix, caption_insert_newlines);
         printf("%s  caption_insert_punctuation: %d\n", line_prefix, caption_insert_punctuation);
+        printf("%s  stream_caption_output_mode: %d\n", line_prefix, stream_caption_output_mode);
+        printf("%s  debounce_delay_seconds: %f\n", line_prefix, debounce_delay_seconds);
+        printf("%s  append_stability_threshold: %f\n", line_prefix, append_stability_threshold);
+        printf("%s  word_reveal_delay_ms: %d\n", line_prefix, word_reveal_delay_ms);
+        printf("%s  card_dwell_seconds: %f\n", line_prefix, card_dwell_seconds);
         printf("%s  user_replacements: %lu\n", line_prefix, replacer.user_replacements().size());
         for (auto &word : replacer.user_replacements())
             printf("%s        %s '%s' -> '%s'\n",
@@ -122,7 +161,12 @@ struct CaptionFormatSettings {
                caption_insert_punctuation == rhs.caption_insert_punctuation &&
                replacer == rhs.replacer &&
                caption_timeout_enabled == rhs.caption_timeout_enabled &&
-               caption_timeout_seconds == rhs.caption_timeout_seconds;
+               caption_timeout_seconds == rhs.caption_timeout_seconds &&
+               stream_caption_output_mode == rhs.stream_caption_output_mode &&
+               debounce_delay_seconds == rhs.debounce_delay_seconds &&
+               word_reveal_delay_ms == rhs.word_reveal_delay_ms &&
+               card_dwell_seconds == rhs.card_dwell_seconds &&
+               append_stability_threshold == rhs.append_stability_threshold;
     }
 
     bool operator!=(const CaptionFormatSettings &rhs) const {

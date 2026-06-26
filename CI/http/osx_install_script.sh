@@ -57,25 +57,18 @@ echo PLUGIN CMAKE
 echo --------------------------------------------------------------
 cd "$CI_ROOT_DIR" && pwd
 
-if [ -n "$GOOGLE_API_KEY" ] && [ "$GOOGLE_API_KEY" != '$(GOOGLE_API_KEY)' ]; then
-  echo building with hardcoded compiled API key
-  API_OR_UI_KEY_ARG="-DGOOGLE_API_KEY=$GOOGLE_API_KEY"
-else
-  echo building with custom user API key UI
-  API_OR_UI_KEY_ARG="-DENABLE_CUSTOM_API_KEY=ON"
-fi
-
 INSTALLED_DIR="$(pwd)/installed"
 mkdir -p build && cd build && pwd
 
 $CMAKE \
   -DCMAKE_OSX_ARCHITECTURES="$OSX_ARCHITECTURES" \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0" \
-  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET="13.0" \
+  -DCMAKE_BUILD_TYPE=Release \
   -DOBS_BUILD_DIR="$BUILD_OBS__INSTALLED_DIR" \
   -DOBS_DEPS_DIR="$BUILD_OBS__UNPACKED_DEPS_DIR" \
-  -DSPEECH_API_GOOGLE_HTTP_OLD=ON \
-  "$API_OR_UI_KEY_ARG" \
+  -DCMAKE_MODULE_PATH="$BUILD_OBS__SRC_DIR/cmake/finders" \
+  -Dobs-frontend-api_DIR="$BUILD_OBS__BUILD_DIR/frontend/api" \
+  -DCMAKE_PREFIX_PATH="$BUILD_OBS__INSTALLED_DIR;$BUILD_OBS__UNPACKED_DEPS_DIR" \
   -DCMAKE_INSTALL_PREFIX:PATH="$INSTALLED_DIR" \
   "$ROOT_DIR/../.."
 
@@ -84,8 +77,8 @@ echo PLUGIN BUILD
 echo --------------------------------------------------------------
 
 cd "$CI_ROOT_DIR" && cd build && pwd
-$CMAKE --build . --config RelWithDebInfo
-$CMAKE --install . --config RelWithDebInfo --verbose
+$CMAKE --build . --config Release
+$CMAKE --install . --config Release --verbose
 
 echo --------------------------------------------------------------
 echo POST INSTALL, FIX RPATHS, BUILD ZIP

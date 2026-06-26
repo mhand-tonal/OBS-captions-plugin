@@ -97,10 +97,10 @@ void MainCaptionWidget::update_caption_text_ui() {
     }
 
     this->captionHistoryPlainTextEdit->setPlainText(latest_caption_text_history.c_str());
-//    QTextCursor cursor1 = this->captionHistoryPlainTextEdit->textCursor();
-//    cursor1.atEnd();
-//    this->captionHistoryPlainTextEdit->setTextCursor(cursor1);
-//    this->captionHistoryPlainTextEdit->ensureCursorVisible();
+    QTextCursor cursor = this->captionHistoryPlainTextEdit->textCursor();
+    cursor.movePosition(QTextCursor::End);
+    this->captionHistoryPlainTextEdit->setTextCursor(cursor);
+    this->captionHistoryPlainTextEdit->ensureCursorVisible();
 
 }
 
