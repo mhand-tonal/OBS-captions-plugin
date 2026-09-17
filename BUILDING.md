@@ -103,6 +103,10 @@ the artifact matching the OBS version shown under **Help > About**, then use
 the enclosed installer or follow `INSTALL.txt` in the plugin ZIP. Install
 only one variant: both provide the same `obs_google_caption_plugin.dll`.
 
+Before uploading, CI checks that each DLL loads against the matching official
+OBS Windows release and reports the same OBS API version. This detects missing
+DLLs or imported symbols; captions and UI still need testing inside OBS.
+
 ## Notes
 
 * `CLEAN_OBS=1` removes the OBS build directory after packaging; the next run

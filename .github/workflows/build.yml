@@ -41,6 +41,12 @@ jobs:
         shell: cmd
         run: python win_install_script.py --obs-version ${{ matrix.obs-version }}
 
+      - name: Check DLL loads with the official OBS runtime
+        run: >-
+          python CI/check_windows_load.py
+          --obs-version ${{ matrix.obs-version }}
+          --plugin CI/http/CI_build/installed/${{ matrix.obs-version }}/lib/obs_google_caption_plugin.dll
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
