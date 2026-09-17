@@ -153,6 +153,24 @@ endif ()
 
 target_link_libraries(obs_google_caption_plugin PRIVATE caption_stream ${_qt_widgets} OBS::libobs OBS::obs-frontend-api)
 
+option(BUILD_CAPTIONS_TESTS "Build caption stability regression tests" OFF)
+if (BUILD_CAPTIONS_TESTS)
+    enable_testing()
+    add_executable(captions_stability_tests
+            tests/stability_tests.cpp
+            src/SourceCaptioner.cpp
+            src/SourceCaptioner.h
+            src/SourceAudioCaptureSession.cpp
+            src/OutputAudioCaptureSession.cpp
+            src/CaptionResultHandler.cpp)
+    if (APPLE)
+        target_include_directories(captions_stability_tests PRIVATE "${OBS_BUILD_DIR}/Frameworks/libobs.framework/Headers")
+    endif ()
+    target_link_libraries(captions_stability_tests PRIVATE caption_stream ${_qt_widgets} OBS::libobs OBS::obs-frontend-api)
+    add_test(NAME captions_stability COMMAND captions_stability_tests)
+    set_tests_properties(captions_stability PROPERTIES TIMEOUT 20)
+endif ()
+
 
 #get_property(dirs TARGET obs_google_caption_plugin PROPERTY INCLUDE_DIRECTORIES)
 #foreach (dir ${dirs})

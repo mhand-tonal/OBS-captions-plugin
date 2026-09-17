@@ -21,6 +21,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <vector>
 #include <cameron314/blockingconcurrentqueue.h>
 #include <CaptionStream.h>
+#include <atomic>
 #include <curl/curl.h>
 
 
@@ -30,12 +31,14 @@ class DeepgramCaptionStream : public CaptionStream {
     std::thread *stream_thread = nullptr;
     moodycamel::BlockingConcurrentQueue<string *> audio_queue;
 
-    bool started = false;
-    bool stopped = false;
+    std::atomic<bool> started{false};
+    std::atomic<bool> stopped{false};
 
     CURL *curl_handle = nullptr;
     curl_socket_t sockfd = CURL_SOCKET_BAD;
     string recv_buffer;
+    size_t audio_bytes_sent = 0;
+    size_t caption_results_received = 0;
     int current_result_index = 0;
     std::chrono::steady_clock::time_point first_received_at;
     bool update_first_received_at = true;

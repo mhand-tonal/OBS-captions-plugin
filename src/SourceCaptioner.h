@@ -21,6 +21,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define OBS_STUDIO_SOURCECAPTIONER_H
 
 
+#include <atomic>
 #include <ContinuousCaptions.h>
 #include <cameron314/blockingconcurrentqueue.h>
 #include <deque>
@@ -423,7 +424,7 @@ struct CaptionOutput {
 template<typename T>
 struct CaptionOutputControl {
     moodycamel::BlockingConcurrentQueue<CaptionOutput> caption_queue;
-    volatile bool stop = false;
+    std::atomic<bool> stop{false};
     T arg;
 
     CaptionOutputControl(T arg) : arg(arg) {}
@@ -617,6 +618,8 @@ signals:
             string recent_caption_text);
 
     void audio_capture_status_changed(const int id, const int new_status);
+
+    void caption_source_removed();
 
     void source_capture_status_changed(shared_ptr<SourceCaptionerStatus> status);
 

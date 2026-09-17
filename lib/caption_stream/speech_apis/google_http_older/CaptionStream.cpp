@@ -134,8 +134,14 @@ bool GoogleHttpCaptionStream::start(std::shared_ptr<CaptionStream> self) {
     if (started)
         return false;
 
+    try {
+        upstream_thread = new thread(&GoogleHttpCaptionStream::upstream_run, this, self);
+    } catch (const std::exception &ex) {
+        error_log("couldn't create google_http_older thread: %s", ex.what());
+        stop();
+        return false;
+    }
     started = true;
-    upstream_thread = new thread(&GoogleHttpCaptionStream::upstream_run, this, self);
     return true;
 }
 
@@ -208,7 +214,12 @@ void GoogleHttpCaptionStream::_upstream_run(std::shared_ptr<CaptionStream> self)
         return;
     }
 
-    downstream_thread = new thread(&GoogleHttpCaptionStream::downstream_run, this, self);
+    try {
+        downstream_thread = new thread(&GoogleHttpCaptionStream::downstream_run, this, self);
+    } catch (const std::exception &ex) {
+        error_log("couldn't create downstream thread: %s", ex.what());
+        return;
+    }
 
     const string crlf("\r\n");
     uint chunk_count = 0;

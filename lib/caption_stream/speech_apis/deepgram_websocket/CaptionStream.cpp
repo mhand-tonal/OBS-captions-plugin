@@ -57,14 +57,22 @@ bool DeepgramCaptionStream::start(std::shared_ptr<CaptionStream> self) {
     if (started)
         return false;
 
+    try {
+        stream_thread = new thread(&DeepgramCaptionStream::stream_run, this, self);
+    } catch (const std::exception &ex) {
+        error_log("couldn't create deepgram_websocket thread: %s", ex.what());
+        stop();
+        return false;
+    }
     started = true;
-    stream_thread = new thread(&DeepgramCaptionStream::stream_run, this, self);
     return true;
 }
 
 void DeepgramCaptionStream::stream_run(std::shared_ptr<CaptionStream> self) {
     debug_log("starting Deepgram stream_run()");
     _stream_run();
+    info_log("Deepgram session ended: audio_bytes_sent=%zu (%.2f seconds), caption_results=%zu",
+             audio_bytes_sent, audio_bytes_sent / 32000.0, caption_results_received);
     stop();
     debug_log("finished Deepgram stream_run()");
 }
@@ -75,6 +83,9 @@ void DeepgramCaptionStream::stream_run(std::shared_ptr<CaptionStream> self) {
 // ---------------------------------------------------------------------------
 
 bool DeepgramCaptionStream::curl_connect() {
+    const auto *version = curl_version_info(CURLVERSION_NOW);
+    info_log("Deepgram transport: libcurl=%s TLS=%s", version->version,
+             version->ssl_version ? version->ssl_version : "none");
     curl_handle = curl_easy_init();
     if (!curl_handle) {
         error_log("curl_easy_init failed");
@@ -228,9 +239,7 @@ bool DeepgramCaptionStream::ws_handshake() {
         if (esc) curl_easy_cleanup(esc);
     }
 
-    // Use fprintf so it's visible regardless of OBS log level
-    fprintf(stderr, "[Deepgram] model=%s path=%s\n", model.c_str(), path.c_str());
-    fflush(stderr);
+    info_log("Deepgram request: model=%s path=%s", model.c_str(), path.c_str());
 
     string request = "GET " + path + " HTTP/1.1\r\n"
                      "Host: api.deepgram.com\r\n"
@@ -288,7 +297,7 @@ bool DeepgramCaptionStream::ws_handshake() {
     if (header_end < response.size())
         recv_buffer = response.substr(header_end);
 
-    debug_log("Deepgram WebSocket connected, language=%s", settings.language.c_str());
+    info_log("Deepgram WebSocket connected, language=%s", settings.language.c_str());
     return true;
 }
 
@@ -323,6 +332,8 @@ void DeepgramCaptionStream::process_incoming() {
                 string transcript = alternatives.array_items()[0]["transcript"].string_value();
                 if (transcript.empty())
                     break;
+
+                caption_results_received++;
 
                 bool is_final = json["is_final"].bool_value();
                 bool speech_final = json["speech_final"].bool_value();
@@ -373,7 +384,13 @@ void DeepgramCaptionStream::process_incoming() {
             case 0x0A: // pong — ignore
                 break;
             case 0x08: // close
-                info_log("Deepgram sent close frame");
+                if (frame.payload.size() >= 2) {
+                    const unsigned code = (static_cast<unsigned char>(frame.payload[0]) << 8)
+                                          | static_cast<unsigned char>(frame.payload[1]);
+                    info_log("Deepgram close: code=%u reason=%s", code, frame.payload.substr(2).c_str());
+                } else {
+                    info_log("Deepgram sent close frame without a status code");
+                }
                 ws_send_frame(0x08, nullptr, 0);
                 stop();
                 return;
@@ -398,6 +415,8 @@ void DeepgramCaptionStream::_stream_run() {
     if (!ws_handshake())
         return;
 
+    // The handshake read may already contain a WebSocket message.
+    process_incoming();
     if (is_stopped()) return;
 
     debug_log("Deepgram stream active, entering event loop");
@@ -412,20 +431,25 @@ void DeepgramCaptionStream::_stream_run() {
                     error_log("Deepgram: failed to send audio chunk");
                     return;
                 }
+                if (!audio_bytes_sent)
+                    info_log("Deepgram first audio sent: %zu bytes", chunk->size());
+                audio_bytes_sent += chunk->size();
             }
             delete chunk;
             if (is_stopped()) return;
         }
 
         // 2. read all available incoming data
-        bool got_data = false;
         while (true) {
             char buf[4096];
             size_t nread = 0;
             CURLcode rc = curl_easy_recv(curl_handle, buf, sizeof(buf), &nread);
             if (rc == CURLE_OK && nread > 0) {
                 recv_buffer.append(buf, nread);
-                got_data = true;
+                // Handle complete frames before another recv can report EOF,
+                // otherwise the final transcript or close reason may be lost.
+                process_incoming();
+                if (is_stopped()) return;
             } else if (rc == CURLE_AGAIN) {
                 break; // no more data right now
             } else {
@@ -437,11 +461,7 @@ void DeepgramCaptionStream::_stream_run() {
             }
         }
 
-        // 3. process any complete WebSocket frames
-        if (got_data)
-            process_incoming();
-
-        // 4. brief wait for more data or audio
+        // 3. brief wait for more data or audio
         ws_poll_socket(sockfd, POLLIN, 20);
     }
 

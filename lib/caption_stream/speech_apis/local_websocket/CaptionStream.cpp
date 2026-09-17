@@ -94,8 +94,14 @@ bool LocalWebSocketCaptionStream::start(std::shared_ptr<CaptionStream> self) {
     if (started)
         return false;
 
+    try {
+        stream_thread = new thread(&LocalWebSocketCaptionStream::stream_run, this, self);
+    } catch (const std::exception &ex) {
+        error_log("couldn't create local_websocket thread: %s", ex.what());
+        stop();
+        return false;
+    }
     started = true;
-    stream_thread = new thread(&LocalWebSocketCaptionStream::stream_run, this, self);
     return true;
 }
 

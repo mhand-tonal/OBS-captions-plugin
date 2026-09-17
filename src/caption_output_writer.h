@@ -8,6 +8,9 @@
 #include "thirdparty/cameron314/blockingconcurrentqueue.h"
 #include "log.c"
 #include "SourceCaptioner.h"
+#include "stringutils.h"
+
+#define OBS_CAPTION_TEXT_MAX_BYTES 128 // 4 lines x 32 characters
 
 static void caption_output_writer_loop(shared_ptr<CaptionOutputControl<int>> control, bool to_stream) {
     string to_what(to_stream ? "streaming" : "recording");
@@ -57,8 +60,6 @@ static void caption_output_writer_loop(shared_ptr<CaptionOutputControl<int>> con
             continue;
         }
 
-        previous_line = caption_output.output_result->output_line;
-
         waited_left_secs = 0;
 
         active_delay_sec = obs_output_get_active_delay(output);
@@ -70,13 +71,8 @@ static void caption_output_writer_loop(shared_ptr<CaptionOutputControl<int>> con
 //            debug_log("wanted_delay %f", chrono::duration_cast<std::chrono::duration<double >>(wanted_delay).count());
 
             auto wait_left = wanted_delay - since_creation;
-            if (wait_left > wanted_delay) {
-                info_log("capping delay, wtf, negative duration?, got %f, max %f",
-                         chrono::duration_cast<std::chrono::duration<double >>(wait_left).count(),
-                         chrono::duration_cast<std::chrono::duration<double >>(wanted_delay).count()
-                );
-                wait_left = wanted_delay;
-            }
+            if (wait_left < wait_left.zero())
+                wait_left = wait_left.zero();
 
             waited_left_secs = chrono::duration_cast<std::chrono::duration<double >>(wait_left).count();
             debug_log("caption_output_writer_loop %s sleeping for %f seconds",
@@ -106,7 +102,8 @@ static void caption_output_writer_loop(shared_ptr<CaptionOutputControl<int>> con
         // debug_log("sending caption %s line now, waited %f: '%s'",
         // to_what.c_str(), waited_left_secs, caption_output.output_result->output_line.c_str());
 
-        const char* txt = caption_output.output_result->output_line.c_str();
+        const string budgeted_line = utf8_tail_within_bytes(caption_output.output_result->output_line, OBS_CAPTION_TEXT_MAX_BYTES);
+        const char *txt = budgeted_line.c_str();
 
         if (to_stream) {
             obs_output_t *ignore_output = obs_frontend_get_recording_output();
@@ -120,8 +117,7 @@ static void caption_output_writer_loop(shared_ptr<CaptionOutputControl<int>> con
                 [](void *param, obs_output_t *output) {
                     auto p = (Ctx *) param;
                     if (output == p->ignore_output) {
-                    }
-                    if (obs_output_active(output)) {
+                    } else if (obs_output_active(output)) {
                         uint32_t flags = obs_output_get_flags(output);
                         if ((flags & OBS_OUTPUT_AV) && (flags & OBS_OUTPUT_ENCODED) && (flags & OBS_OUTPUT_SERVICE)) {
                             obs_output_output_caption_text2(output, p->txt, 0.0);
@@ -136,6 +132,8 @@ static void caption_output_writer_loop(shared_ptr<CaptionOutputControl<int>> con
         } else {
             obs_output_output_caption_text2(output, txt, 0.0);
         }
+
+        previous_line = caption_output.output_result->output_line;
     }
 
     if (output) {

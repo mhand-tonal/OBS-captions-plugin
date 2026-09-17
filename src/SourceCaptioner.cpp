@@ -59,7 +59,7 @@ SourceCaptioner::SourceCaptioner(const bool enabled, const SourceCaptionerSettin
                      this, &SourceCaptioner::process_caption_result, Qt::QueuedConnection);
 
     QObject::connect(this, &SourceCaptioner::audio_capture_status_changed,
-                     this, &SourceCaptioner::process_audio_capture_status_change);
+                     this, &SourceCaptioner::process_audio_capture_status_change, Qt::QueuedConnection);
 
     timer.start(1000);
 
@@ -79,6 +79,7 @@ void SourceCaptioner::stop_caption_stream(bool send_signal) {
         caption_result_handler = nullptr;
         continuous_captions = nullptr;
         audio_capture_id++;
+        fileoutput_captions_output.clear();
         return;
     }
 
@@ -92,6 +93,7 @@ void SourceCaptioner::stop_caption_stream(bool send_signal) {
     caption_result_handler = nullptr;
     continuous_captions = nullptr;
     audio_capture_id++;
+    fileoutput_captions_output.clear();
 
     settings_change_mutex.unlock();
 
@@ -122,8 +124,6 @@ bool SourceCaptioner::set_settings(const SourceCaptionerSettings &new_settings, 
 
         settings = new_settings;
         selected_scene_collection_name = scene_collection_name;
-
-        fileoutput_captions_output.clear();
     }
 
     emit source_capture_status_changed(std::make_shared<SourceCaptionerStatus>(
@@ -182,6 +182,8 @@ bool SourceCaptioner::start_caption_stream(const SourceCaptionerSettings &new_se
                     fileoutput_captions_output.set_control(control);
                     std::thread th(fileoutput_writer_loop, control, fsets);
                     th.detach();
+                } else {
+                    fileoutput_captions_output.clear();
                 }
             }
         }
@@ -237,6 +239,9 @@ bool SourceCaptioner::_start_caption_stream(bool restart_stream) {
         if (!use_output_audio) {
             caption_source = obs_get_source_by_name(selected_caption_source_settings.caption_source_name.c_str());
             obs_source_release(caption_source);
+            // can still be found if removed but refs left so extra check for that
+            if (caption_source && obs_source_removed(caption_source))
+                caption_source = nullptr;
             if (!caption_source) {
                 warn_log("SourceCaptioner start_caption_stream, no caption source with name: '%s'",
                          selected_caption_source_settings.caption_source_name.c_str());
@@ -246,7 +251,8 @@ bool SourceCaptioner::_start_caption_stream(bool restart_stream) {
             if (selected_caption_source_settings.mute_when == CAPTION_SOURCE_MUTE_TYPE_USE_OTHER_MUTE_SOURCE) {
                 mute_source = obs_get_source_by_name(selected_caption_source_settings.mute_source_name.c_str());
                 obs_source_release(mute_source);
-
+                if (mute_source && obs_source_removed(mute_source))
+                    mute_source = nullptr;
                 if (!mute_source) {
                     warn_log("SourceCaptioner start_caption_stream, no mute source with name: '%s'",
                              selected_caption_source_settings.mute_source_name.c_str());
@@ -350,11 +356,19 @@ void SourceCaptioner::process_audio_capture_status_change(const int cb_audio_cap
     SourceCaptionerSettings cur_settings = settings;
     string cur_scene_collection_name = selected_scene_collection_name;
     bool active = continuous_captions != nullptr;
+    bool source_removed = !is_old_audio_session && source_audio_capture_session
+                          && source_audio_capture_session->is_source_removed();
 
     settings_change_mutex.unlock();
 
     if (is_old_audio_session) {
         debug_log("ignoring old audio capture status!!");
+        return;
+    }
+
+    if (source_removed) {
+        info_log("caption/mute source was removed");
+        emit caption_source_removed();
         return;
     }
 
@@ -772,8 +786,23 @@ void SourceCaptioner::process_caption_result(const CaptionResult caption_result,
                                                                                      text_out.capitalization,
                                                                                      interrupted,
                                                                                      results_history);
+            if (!text_output_result)
+                continue;
 
             text_source_sets.emplace_back(text_out.text_source_name, text_output_result->output_line);
+        }
+
+        if (settings.file_output_settings.isValidEnabled() && fileoutput_captions_output.control) {
+            file_output_result = caption_result_handler->prepare_caption_output(
+                caption_result,
+                true,
+                true,
+                settings.file_output_settings.insert_punctuation,
+                settings.file_output_settings.line_length,
+                settings.file_output_settings.line_count,
+                settings.file_output_settings.capitalization,
+                interrupted,
+                results_history);
         }
 
         store_result(native_output_result);
@@ -1004,19 +1033,6 @@ void SourceCaptioner::process_caption_result(const CaptionResult caption_result,
         to_transcript_streaming = settings.transcript_settings.enabled && settings.transcript_settings.streaming_transcripts_enabled;
         to_transcript_recording = settings.transcript_settings.enabled && settings.transcript_settings.recording_transcripts_enabled;
         to_transcript_virtualcam = settings.transcript_settings.enabled && settings.transcript_settings.virtualcam_transcripts_enabled;
-
-        if (settings.file_output_settings.isValidEnabled() && fileoutput_captions_output.control) {
-            file_output_result = caption_result_handler->prepare_caption_output(
-                caption_result,
-                true,
-                true,
-                settings.file_output_settings.insert_punctuation,
-                settings.file_output_settings.line_length,
-                settings.file_output_settings.line_count,
-                settings.file_output_settings.capitalization,
-                interrupted,
-                results_history);
-        }
     }
 
     if (to_stream || to_recording) {
@@ -1184,6 +1200,7 @@ void SourceCaptioner::set_text_source_text(const string &text_source_name, const
 SourceCaptioner::~SourceCaptioner() {
     stream_stopped_event();
     recording_stopped_event();
+    virtualcam_stopped_event();
     stop_caption_stream(false);
 }
 
@@ -1198,6 +1215,10 @@ template<class T>
 CaptionOutputControl<T>::~CaptionOutputControl() {
     debug_log("~CaptionOutputControl");
 }
+
+template struct CaptionOutputControl<int>;
+template struct CaptionOutputControl<TranscriptOutputSettings>;
+template struct CaptionOutputControl<FileOutputSettings>;
 
 bool TranscriptOutputSettings::hasBaseSettings() const {
     if (!enabled || output_path.empty() || format.empty())

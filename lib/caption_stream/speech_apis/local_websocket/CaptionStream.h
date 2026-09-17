@@ -21,6 +21,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <vector>
 #include <cameron314/blockingconcurrentqueue.h>
 #include <CaptionStream.h>
+#include <atomic>
 #include <curl/curl.h>
 
 
@@ -30,8 +31,8 @@ class LocalWebSocketCaptionStream : public CaptionStream {
     std::thread *stream_thread = nullptr;
     moodycamel::BlockingConcurrentQueue<string *> audio_queue;
 
-    bool started = false;
-    bool stopped = false;
+    std::atomic<bool> started{false};
+    std::atomic<bool> stopped{false};
 
     CURL *curl_handle = nullptr;
     curl_socket_t sockfd = CURL_SOCKET_BAD;

@@ -22,6 +22,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <queue>
 #include <cameron314/blockingconcurrentqueue.h>
 #include <CaptionStream.h>
+#include <atomic>
 
 
 class GoogleHttpCaptionStream : public CaptionStream {
@@ -36,8 +37,8 @@ class GoogleHttpCaptionStream : public CaptionStream {
 
     moodycamel::BlockingConcurrentQueue<string *> audio_queue;
 
-    bool started = false;
-    bool stopped = false;
+    std::atomic<bool> started{false};
+    std::atomic<bool> stopped{false};
 
     string *dequeue_audio_data(const std::int64_t timeout_us);
 
