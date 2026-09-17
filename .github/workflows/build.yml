@@ -5,10 +5,20 @@ on:
     branches: [master, main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      windows_only:
+        description: Build only the Windows packages
+        type: boolean
+        default: false
 
 jobs:
   build-windows:
+    name: Windows (OBS ${{ matrix.obs-version }})
     runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        obs-version: ["30.2.3", "32.1.1"]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -17,8 +27,8 @@ jobs:
       - name: Cache OBS Studio
         uses: actions/cache@v4
         with:
-          path: CI/http/CI_build/build_deps/obs-studio
-          key: obs-studio-32.1.1-windows-${{ hashFiles('CI/win_build_obs.py') }}
+          path: CI/http/CI_build/build_deps/obs-studio/${{ matrix.obs-version }}
+          key: obs-studio-${{ matrix.obs-version }}-windows-${{ hashFiles('CI/win_build_obs.py') }}
 
       - name: Cache plibsys
         uses: actions/cache@v4
@@ -29,17 +39,19 @@ jobs:
       - name: Build
         working-directory: CI/http
         shell: cmd
-        run: python win_install_script.py
+        run: python win_install_script.py --obs-version ${{ matrix.obs-version }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Windows-Plugin
+          name: Windows-Plugin-OBS-${{ matrix.obs-version }}
+          if-no-files-found: error
           path: |
             CI/http/CI_build/release/*.zip
             CI/http/CI_build/release/*.exe
 
   build-macos:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.windows_only }}
     runs-on: macos-13
     steps:
       - uses: actions/checkout@v4

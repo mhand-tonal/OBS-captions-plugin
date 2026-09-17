@@ -1,6 +1,10 @@
 !include "MUI2.nsh"
 
+!ifdef OBS_VERSION
+Name "Cloud Closed Captions Plugin ${VERSION} for OBS ${OBS_VERSION} (x64)"
+!else
 Name "Cloud Closed Captions Plugin ${VERSION}"
+!endif
 OutFile "${OUTFILE}"
 InstallDir "$PROGRAMFILES64\obs-studio"
 InstallDirRegKey HKLM "SOFTWARE\OBS Studio" ""

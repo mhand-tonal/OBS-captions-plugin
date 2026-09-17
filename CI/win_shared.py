@@ -30,21 +30,30 @@ def eprint(*args, **kwargs):
 	print(*args, **kwargs, file = sys.stderr)
 
 
-def package_zip(release: Path, installed_dir: Path, version: str):
+def package_zip(release: Path, installed_dir: Path, version: str, obs_version: str = None):
 	release.mkdir(parents = True, exist_ok = True)
 
-	pkg_dir = release.joinpath(f"Closed_Captions_Plugin__v{version}_Windows")
+	package_name = f"Closed_Captions_Plugin__v{version}_Windows"
+	if obs_version:
+		package_name += f"_OBS-{obs_version}"
+	pkg_dir = release.joinpath(package_name)
 	obs_plugin_64bit = pkg_dir.joinpath("obs-plugins", "64bit")
 	obs_plugin_64bit.mkdir(parents = True, exist_ok = True)
 
-	plugin_dll = installed_dir.joinpath(r"lib\obs_google_caption_plugin.dll")
+	plugin_dll = installed_dir.joinpath("lib", "obs_google_caption_plugin.dll")
 	print(f"copying  {plugin_dll!r} -> {obs_plugin_64bit!r}")
 	shutil.copy(plugin_dll, obs_plugin_64bit)
 
 	readme = pkg_dir.joinpath("INSTALL.txt")
+	target_note = (
+		f"Built for OBS Studio {obs_version} (Windows x64).\n"
+		"Install the package matching your OBS version; install only one variant.\n\n"
+		if obs_version else ""
+	)
 	readme.write_text(
 		"Cloud Closed Captions Plugin for OBS Studio\n"
 		"=============================================\n\n"
+		+ target_note +
 		"To install:\n"
 		"  1. Copy the obs-plugins folder into your OBS Studio installation directory.\n"
 		"     Typically: C:\\Program Files\\obs-studio\\\n\n"
@@ -52,16 +61,17 @@ def package_zip(release: Path, installed_dir: Path, version: str):
 		"  3. Go to Tools > Cloud Closed Captions to configure.\n"
 	)
 
-	check_call(["7z", "a", "-r", release.joinpath(f"Closed_Captions_Plugin__v{version}_Windows.zip"), pkg_dir])
+	check_call(["7z", "a", "-r", release.joinpath(f"{package_name}.zip"), pkg_dir])
 
 	# Build NSIS installer
 	nsi_script = Path(__file__).parent.joinpath("installer.nsi")
 	if nsi_script.exists():
-		installer_exe = release.joinpath(f"Closed_Captions_Plugin__v{version}_Windows_Setup.exe")
+		installer_exe = release.joinpath(f"{package_name}_Setup.exe")
 		try:
 			check_call([
 				"makensis",
 				f"/DVERSION={version}",
+				*([f"/DOBS_VERSION={obs_version}"] if obs_version else []),
 				f"/DPLUGIN_DLL={str(plugin_dll)}",
 				f"/DOUTFILE={str(installer_exe)}",
 				str(nsi_script),
@@ -70,5 +80,3 @@ def package_zip(release: Path, installed_dir: Path, version: str):
 		except Exception as e:
 			print(f"WARNING: NSIS installer build failed (makensis may not be installed): {e}")
 			print("ZIP package was still created successfully.")
-
-

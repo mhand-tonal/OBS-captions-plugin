@@ -1,4 +1,3 @@
-# import argparse
 import os
 import re
 import shutil
@@ -8,13 +7,22 @@ from pathlib import Path
 
 from win_shared import check_call, download, unzip, spa
 
-DEPS = "https://github.com/obsproject/obs-deps/releases/download/2025-08-23/windows-deps-2025-08-23-x64.zip"
-DEPS_QT = "https://github.com/obsproject/obs-deps/releases/download/2025-08-23/windows-deps-qt6-2025-08-23-x64.zip"
+DEFAULT_OBS_VERSION = "32.1.1"
+# Match each OBS tag's buildspec.json (30.x) or CMakePresets.json (32.x).
+OBS_VERSIONS = {
+	"30.2.3": {"deps": "2024-05-08", "frontend_api": "UI/obs-frontend-api"},
+	"32.1.1": {"deps": "2025-08-23", "frontend_api": "frontend/api"},
+}
 
 CMAKE_VS_ARGS = ["-G", "Visual Studio 17 2022", "-A", "x64"]
 
 
-def setup_obs(obs_studio: Path, clean_afterwards: bool):
+def setup_obs(obs_studio: Path, clean_afterwards: bool, obs_version: str = DEFAULT_OBS_VERSION):
+	config = OBS_VERSIONS[obs_version]
+	deps_version = config["deps"]
+	deps_base_url = f"https://github.com/obsproject/obs-deps/releases/download/{deps_version}"
+	# Keep headers, libraries, Qt and downloads separate even for local builds.
+	obs_studio = obs_studio.joinpath(obs_version)
 	obs_deps_dir = obs_studio.joinpath("obs_deps_dir")
 	obs_deps_unpacked = obs_deps_dir.joinpath("obs_deps_unpacked")
 	obs_studio_src = obs_studio.joinpath("src")
@@ -22,7 +30,7 @@ def setup_obs(obs_studio: Path, clean_afterwards: bool):
 	build_installed_dir = obs_studio_src.joinpath("build_installed")
 	done_file = obs_studio_src.joinpath("done.txt")
 
-	if obs_studio_src.exists() and build_installed_dir.exists() and obs_deps_dir.exists() and done_file.exists():
+	if build_dir.exists() and obs_deps_unpacked.exists() and done_file.exists() and done_file.read_text() == obs_version:
 		print("obs-studio src exists already, skipping", obs_studio_src)
 		patch_w32(build_installed_dir)
 		return obs_studio_src, obs_deps_unpacked, build_installed_dir
@@ -31,12 +39,12 @@ def setup_obs(obs_studio: Path, clean_afterwards: bool):
 	deps_zip = obs_deps_dir.joinpath("deps.zip")
 	if not deps_zip.exists():
 		print("downloading deps", deps_zip)
-		download(DEPS, deps_zip)
+		download(f"{deps_base_url}/windows-deps-{deps_version}-x64.zip", deps_zip)
 
 	deps_qt_zip = obs_deps_dir.joinpath("deps_qt.zip")
 	if not deps_qt_zip.exists():
 		print("downloading deps qt", deps_qt_zip)
-		download(DEPS_QT, deps_qt_zip)
+		download(f"{deps_base_url}/windows-deps-qt6-{deps_version}-x64.zip", deps_qt_zip)
 
 	if not obs_deps_unpacked.exists():
 		unzip(deps_zip, obs_deps_unpacked)
@@ -46,8 +54,8 @@ def setup_obs(obs_studio: Path, clean_afterwards: bool):
 	print("setting up OBS build/source in", obs_studio_src)
 
 	if not obs_studio_src.exists():
-		check_call([*spa("git clone https://github.com/obsproject/obs-studio.git"), str(obs_studio_src)])
-		check_call([*spa("git checkout 32.1.1")], cwd = obs_studio_src)
+		check_call(["git", "clone", "--branch", obs_version, "--single-branch",
+			"https://github.com/obsproject/obs-studio.git", str(obs_studio_src)])
 		check_call([*spa("git submodule update --init --recursive")], cwd = obs_studio_src)
 
 	build_dir.mkdir(True, exist_ok = True)
@@ -56,6 +64,8 @@ def setup_obs(obs_studio: Path, clean_afterwards: bool):
 	check_call([
 		"cmake", "..",
 		*CMAKE_VS_ARGS,
+		# OBS 30 otherwise selects its legacy Windows CMake build system.
+		"-DOBS_CMAKE_VERSION=3.0.0",
 		r"-DENABLE_BROWSER=OFF",
 		r"-DENABLE_VLC=OFF",
 		r"-DENABLE_SCRIPTING=OFF",
@@ -79,7 +89,7 @@ def setup_obs(obs_studio: Path, clean_afterwards: bool):
 			print("removing", build_dir)
 			shutil.rmtree(build_dir)
 
-	done_file.write_text("yep")
+	done_file.write_text(obs_version)
 	return obs_studio_src, obs_deps_unpacked, build_installed_dir
 
 

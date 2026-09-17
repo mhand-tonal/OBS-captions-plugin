@@ -13,10 +13,10 @@ The build scripts live under `CI/` and come in two flavors:
 * **`CI/grpc/`** — builds the older Google **gRPC** backend instead. Pulls in
   vcpkg + gRPC and takes much longer. Not needed for Deepgram or Local WebSocket.
 
-Each script clones and builds OBS itself (currently **OBS 32.1.1** with the
-`2025-08-23` obs-deps) into a local `CI_build/` directory, then builds and
-packages the plugin. The OBS build is cached in `CI_build/`, so only the first
-run is slow.
+The scripts clone and build OBS into a local `CI_build/` directory, then build
+and package the plugin. Windows defaults to **OBS 32.1.1** and also supports
+**OBS 30.2.3**, with matching dependencies for each version. The OBS build is
+cached in `CI_build/`, so only the first run for each version is slow.
 
 ## macOS
 
@@ -67,16 +67,45 @@ bash linux_install_script.sh
 
 ## Windows
 
+Requires Visual Studio 2022 with the Desktop development with C++ workload,
+CMake, Python 3, Git, curl and 7-Zip on `PATH`. NSIS (`makensis`) is optional
+and adds a setup EXE alongside the ZIP.
+
 ```bat
 cd CI\http
-python win_install_script.py
+python win_install_script.py --obs-version 30.2.3
+python win_install_script.py --obs-version 32.1.1
 ```
+
+Omitting `--obs-version` selects `32.1.1`. Both builds use the same plugin source.
+
+| OBS target | Windows x64 dependency and Qt bundles |
+| --- | --- |
+| 30.2.3 | `2024-05-08` (Qt 6.6.3) |
+| 32.1.1 | `2025-08-23` |
+
+These pins match OBS's [30.2.3 build specification](https://github.com/obsproject/obs-studio/blob/30.2.3/buildspec.json)
+and [32.1.1 CMake presets](https://github.com/obsproject/obs-studio/blob/32.1.1/CMakePresets.json).
+OBS dependencies and plugin build/install directories are separated by OBS
+version, so switching targets does not reuse the other version's libraries.
+
+Packages are written to `CI/http/CI_build/release/`:
+
+```text
+Closed_Captions_Plugin__v<version>_Windows_OBS-30.2.3.zip
+Closed_Captions_Plugin__v<version>_Windows_OBS-32.1.1.zip
+```
+
+When NSIS is available, the corresponding installers end in `_Setup.exe`.
+GitHub Actions builds both Windows variants and uploads them as
+`Windows-Plugin-OBS-30.2.3` and `Windows-Plugin-OBS-32.1.1` artifacts. Download
+the artifact matching the OBS version shown under **Help > About**, then use
+the enclosed installer or follow `INSTALL.txt` in the plugin ZIP. Install
+only one variant: both provide the same `obs_google_caption_plugin.dll`.
 
 ## Notes
 
-* To force a clean OBS rebuild, set `CLEAN_OBS=1` (and `CLEAN_VCPKG=1` for the
-  gRPC path). Otherwise delete `CI/<flavor>/CI_build/` to start fully fresh.
+* `CLEAN_OBS=1` removes the OBS build directory after packaging; the next run
+  rebuilds it. Delete `CI/<flavor>/CI_build/` to start fully fresh.
 * The plugin links system `libcurl` for the Deepgram and Local WebSocket
   backends — no extra dependencies are required for those.
-</content>
-</invoke>
