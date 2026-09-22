@@ -49,6 +49,7 @@ static CaptionStreamSettings default_CaptionStreamSettings() {
 
 static ContinuousCaptionStreamSettings default_ContinuousCaptionStreamSettings() {
     return {
+            SPEECH_API_GOOGLE_HTTP,
 #ifdef USE_DEVMODE
             100,
 #else
@@ -179,6 +180,29 @@ static void enforce_CaptionPluginSettings_values(CaptionPluginSettings &settings
     if (source_settings.format_settings.capitalization < 0 || source_settings.format_settings.capitalization > 2)
         source_settings.format_settings.capitalization = (CapitalizationType) 0;
 
+    if (source_settings.format_settings.stream_caption_output_mode < STREAM_OUTPUT_MODE_LOW_LATENCY
+        || source_settings.format_settings.stream_caption_output_mode > STREAM_OUTPUT_MODE_SUBTITLE_BOX)
+        source_settings.format_settings.stream_caption_output_mode = STREAM_OUTPUT_MODE_LOW_LATENCY;
+
+    // DEBOUNCED (1) was removed from the UI; remap old configs to LOW_LATENCY
+    if (source_settings.format_settings.stream_caption_output_mode == STREAM_OUTPUT_MODE_DEBOUNCED)
+        source_settings.format_settings.stream_caption_output_mode = STREAM_OUTPUT_MODE_LOW_LATENCY;
+
+    if (source_settings.format_settings.debounce_delay_seconds < MIN_DEBOUNCE_SECONDS
+        || source_settings.format_settings.debounce_delay_seconds > MAX_DEBOUNCE_SECONDS)
+        source_settings.format_settings.debounce_delay_seconds = DEFAULT_DEBOUNCE_SECONDS;
+
+    if (source_settings.format_settings.append_stability_threshold < 0.0 || source_settings.format_settings.append_stability_threshold > 1.0)
+        source_settings.format_settings.append_stability_threshold = DEFAULT_STABILITY_THRESHOLD;
+
+    if (source_settings.format_settings.word_reveal_delay_ms < MIN_WORD_REVEAL_DELAY_MS
+        || source_settings.format_settings.word_reveal_delay_ms > MAX_WORD_REVEAL_DELAY_MS)
+        source_settings.format_settings.word_reveal_delay_ms = DEFAULT_WORD_REVEAL_DELAY_MS;
+
+    if (source_settings.format_settings.card_dwell_seconds < MIN_CARD_DWELL_SECONDS
+        || source_settings.format_settings.card_dwell_seconds > MAX_CARD_DWELL_SECONDS)
+        source_settings.format_settings.card_dwell_seconds = DEFAULT_CARD_DWELL_SECONDS;
+
     if (source_settings.transcript_settings.srt_capitalization < 0
         || source_settings.transcript_settings.srt_capitalization > 2)
         source_settings.transcript_settings.srt_capitalization = (CapitalizationType) 0;
@@ -187,6 +211,13 @@ static void enforce_CaptionPluginSettings_values(CaptionPluginSettings &settings
     // ensure old strict/2 falls back to on/1 not off/0 default.
     if (source_settings.stream_settings.stream_settings.profanity_filter == 2)
         source_settings.stream_settings.stream_settings.profanity_filter = 1;
+
+    if (source_settings.stream_settings.provider < SPEECH_API_GOOGLE_HTTP
+        || source_settings.stream_settings.provider > SPEECH_API_LOCAL_WEBSOCKET)
+        source_settings.stream_settings.provider = SPEECH_API_GOOGLE_HTTP;
+
+    if (source_settings.stream_settings.stream_settings.server_url.empty())
+        source_settings.stream_settings.stream_settings.server_url = "ws://localhost:6006";
 
     enforce_FileOutputSettings_values(settings.source_cap_settings.file_output_settings);
 }
@@ -310,12 +341,22 @@ static CaptionPluginSettings get_CaptionPluginSettings_from_data(obs_data_t *loa
     obs_data_set_default_string(load_data, "mute_source_name", "");
     obs_data_set_default_string(load_data, "source_caption_when", "");
 
+    obs_data_set_default_int(load_data, "speech_api_provider", source_settings.stream_settings.provider);
     obs_data_set_default_string(load_data, "source_language", source_settings.stream_settings.stream_settings.language.c_str());
     obs_data_set_default_int(load_data, "profanity_filter", source_settings.stream_settings.stream_settings.profanity_filter);
     obs_data_set_default_string(load_data, "custom_api_key", source_settings.stream_settings.stream_settings.api_key.c_str());
+    obs_data_set_default_string(load_data, "deepgram_model", source_settings.stream_settings.stream_settings.model.c_str());
+    obs_data_set_default_string(load_data, "deepgram_keywords", source_settings.stream_settings.stream_settings.keywords.c_str());
+    obs_data_set_default_string(load_data, "local_ws_server_url", source_settings.stream_settings.stream_settings.server_url.c_str());
 
     obs_data_set_default_double(load_data, "caption_timeout_secs", source_settings.format_settings.caption_timeout_seconds);
     obs_data_set_default_bool(load_data, "caption_timeout_enabled", source_settings.format_settings.caption_timeout_enabled);
+
+    obs_data_set_default_int(load_data, "stream_caption_output_mode", source_settings.format_settings.stream_caption_output_mode);
+    obs_data_set_default_double(load_data, "debounce_delay_seconds", source_settings.format_settings.debounce_delay_seconds);
+    obs_data_set_default_double(load_data, "append_stability_threshold", source_settings.format_settings.append_stability_threshold);
+    obs_data_set_default_int(load_data, "word_reveal_delay_ms", source_settings.format_settings.word_reveal_delay_ms);
+    obs_data_set_default_double(load_data, "card_dwell_seconds", source_settings.format_settings.card_dwell_seconds);
 
     obs_data_set_default_bool(load_data, "transcript_enabled", source_settings.transcript_settings.enabled);
     obs_data_set_default_bool(load_data, "transcript_write_realtime",
@@ -381,14 +422,30 @@ static CaptionPluginSettings get_CaptionPluginSettings_from_data(obs_data_t *loa
     source_settings.format_settings.caption_line_count = (int) obs_data_get_int(load_data, "caption_line_count");
     source_settings.format_settings.capitalization = (CapitalizationType) obs_data_get_int(load_data, "caption_capitalization");
 
+    source_settings.stream_settings.provider = (SpeechApiProvider) obs_data_get_int(load_data, "speech_api_provider");
     source_settings.stream_settings.stream_settings.language = obs_data_get_string(load_data, "source_language");
     source_settings.stream_settings.stream_settings.profanity_filter = (int) obs_data_get_int(load_data, "profanity_filter");
-#if ENABLE_CUSTOM_API_KEY
     source_settings.stream_settings.stream_settings.api_key = obs_data_get_string(load_data, "custom_api_key");
-#endif
+    source_settings.stream_settings.stream_settings.model = obs_data_get_string(load_data, "deepgram_model");
+    source_settings.stream_settings.stream_settings.keywords = obs_data_get_string(load_data, "deepgram_keywords");
+    // Read the new key; fall back to the old sherpa_onnx_server_url so existing
+    // saved settings don't lose their configured URL after the rename.
+    source_settings.stream_settings.stream_settings.server_url = obs_data_get_string(load_data, "local_ws_server_url");
+    if (source_settings.stream_settings.stream_settings.server_url.empty()) {
+        const char *legacy = obs_data_get_string(load_data, "sherpa_onnx_server_url");
+        if (legacy && *legacy)
+            source_settings.stream_settings.stream_settings.server_url = legacy;
+    }
 
     source_settings.format_settings.caption_timeout_enabled = obs_data_get_bool(load_data, "caption_timeout_enabled");
     source_settings.format_settings.caption_timeout_seconds = obs_data_get_double(load_data, "caption_timeout_secs");
+
+    source_settings.format_settings.stream_caption_output_mode =
+            (StreamCaptionOutputMode) obs_data_get_int(load_data, "stream_caption_output_mode");
+    source_settings.format_settings.debounce_delay_seconds = obs_data_get_double(load_data, "debounce_delay_seconds");
+    source_settings.format_settings.append_stability_threshold = obs_data_get_double(load_data, "append_stability_threshold");
+    source_settings.format_settings.word_reveal_delay_ms = (int) obs_data_get_int(load_data, "word_reveal_delay_ms");
+    source_settings.format_settings.card_dwell_seconds = obs_data_get_double(load_data, "card_dwell_seconds");
 
 
     auto word_reps = std::vector<WordReplacement>();
@@ -472,14 +529,22 @@ static void set_CaptionPluginSettings_on_data(obs_data_t *save_data, const Capti
     obs_data_set_int(save_data, "caption_capitalization", source_settings.format_settings.capitalization);
 //    obs_data_set_bool(save_data, "caption_insert_newlines", settings.format_settings.caption_insert_newlines);
 
+    obs_data_set_int(save_data, "speech_api_provider", source_settings.stream_settings.provider);
     obs_data_set_string(save_data, "source_language", source_settings.stream_settings.stream_settings.language.c_str());
     obs_data_set_int(save_data, "profanity_filter", source_settings.stream_settings.stream_settings.profanity_filter);
-#if ENABLE_CUSTOM_API_KEY
     obs_data_set_string(save_data, "custom_api_key", source_settings.stream_settings.stream_settings.api_key.c_str());
-#endif
+    obs_data_set_string(save_data, "deepgram_model", source_settings.stream_settings.stream_settings.model.c_str());
+    obs_data_set_string(save_data, "deepgram_keywords", source_settings.stream_settings.stream_settings.keywords.c_str());
+    obs_data_set_string(save_data, "local_ws_server_url", source_settings.stream_settings.stream_settings.server_url.c_str());
 
     obs_data_set_bool(save_data, "caption_timeout_enabled", source_settings.format_settings.caption_timeout_enabled);
     obs_data_set_double(save_data, "caption_timeout_secs", source_settings.format_settings.caption_timeout_seconds);
+
+    obs_data_set_int(save_data, "stream_caption_output_mode", source_settings.format_settings.stream_caption_output_mode);
+    obs_data_set_double(save_data, "debounce_delay_seconds", source_settings.format_settings.debounce_delay_seconds);
+    obs_data_set_double(save_data, "append_stability_threshold", source_settings.format_settings.append_stability_threshold);
+    obs_data_set_int(save_data, "word_reveal_delay_ms", source_settings.format_settings.word_reveal_delay_ms);
+    obs_data_set_double(save_data, "card_dwell_seconds", source_settings.format_settings.card_dwell_seconds);
 
     set_WordReplacements(save_data, source_settings.format_settings.replacer.user_replacements());
 

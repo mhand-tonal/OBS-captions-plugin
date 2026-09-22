@@ -23,6 +23,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <CaptionStream.h>
 
 struct ContinuousCaptionStreamSettings {
+    SpeechApiProvider provider;
     uint connect_second_after_secs;
     uint switchover_second_after_secs;
 
@@ -31,18 +32,21 @@ struct ContinuousCaptionStreamSettings {
     CaptionStreamSettings stream_settings;
 
     ContinuousCaptionStreamSettings(
+            SpeechApiProvider provider,
             uint connectSecondAfterSecs,
             uint switchoverSecondAfterSecs,
             uint minimumReconnectIntervalSecs,
             CaptionStreamSettings streamSettings
     ) :
+            provider(provider),
             connect_second_after_secs(connectSecondAfterSecs),
             switchover_second_after_secs(connectSecondAfterSecs + switchoverSecondAfterSecs),
             minimum_reconnect_interval_secs(minimumReconnectIntervalSecs),
             stream_settings(streamSettings) {}
 
     bool operator==(const ContinuousCaptionStreamSettings &rhs) const {
-        return connect_second_after_secs == rhs.connect_second_after_secs &&
+        return provider == rhs.provider &&
+               connect_second_after_secs == rhs.connect_second_after_secs &&
                switchover_second_after_secs == rhs.switchover_second_after_secs &&
                minimum_reconnect_interval_secs == rhs.minimum_reconnect_interval_secs &&
                stream_settings == rhs.stream_settings;
@@ -54,12 +58,12 @@ struct ContinuousCaptionStreamSettings {
 
     void print(const char *line_prefix = "") {
         printf("%sContinuousCaptionStreamSettings\n", line_prefix);
+        printf("%s  provider: %d\n", line_prefix, provider);
         printf("%s  connect_second_after_secs: %d\n", line_prefix, connect_second_after_secs);
         printf("%s  switchover_second_after_secs: %d\n", line_prefix, switchover_second_after_secs);
         printf("%s  minimum_reconnect_interval_secs: %d\n", line_prefix, minimum_reconnect_interval_secs);
 
         stream_settings.print((string(line_prefix) + "  ").c_str());
-//        printf("%s-----------\n", line_prefix);
     }
 
 };

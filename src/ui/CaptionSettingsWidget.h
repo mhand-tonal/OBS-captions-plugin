@@ -92,6 +92,10 @@ public:
 
     void update_sources_visibilities();
 
+    void update_stream_output_mode_visibility();
+
+    void update_provider_field_visibility();
+
 private:
     void showEvent(QShowEvent *event) override;
 };
