@@ -31,5 +31,8 @@ For Windows troubleshooting, reproduce the issue, stop captioning, then open
 **Help → Log Files → View Current Log** and search for `[captions_plugin]` and
 `Deepgram`. Logs are also under `%APPDATA%\obs-studio\logs`. Audio totals count bytes
 successfully written by the client; they do not prove server transcription.
+`tools/windows_diagnostics.ps1` collects all of this into one zip; see
+[WINDOWS_TROUBLESHOOTING.md](./WINDOWS_TROUBLESHOOTING.md) for what each log line
+means.
 
 Regression test instructions are in [tests/README.md](tests/README.md).
