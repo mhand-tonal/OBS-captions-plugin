@@ -64,7 +64,7 @@ Attaching the file is the safer of the two ways to share it.
 Send with it:
 
 * OBS version from **Help → About**.
-* Which plugin package you installed (`...OBS-30.2.3` or `...OBS-32.1.1`).
+* Which plugin package you installed (`...OBS-30.2.3`, `...OBS-32.1.1` or `...OBS-32.2.2`).
 * Whether `C:\Program Files\obs-studio\obs-plugins\64bit\obs_google_caption_plugin.dll`
   exists, plus its size and date from Explorer.
 
@@ -97,7 +97,7 @@ Paste this filled in — it decides which half of the log I read:
 
 ```
 OBS version         :
-Plugin package      :  (OBS-30.2.3 / OBS-32.1.1 / built from source)
+Plugin package      :  (OBS-30.2.3 / OBS-32.1.1 / OBS-32.2.2 / built from source)
 Provider            :  (Google / Deepgram / Local WebSocket)
 What I did          :
 What I expected     :
@@ -149,6 +149,8 @@ wrong OBS version. The collector's load test reports the exact API versions.
 | `Deepgram request: model=... path=...` | The request about to be made |
 | `Deepgram authentication failed — check your API key` | Bad or expired key |
 | `WebSocket upgrade failed: <status>` | Rejected before the stream opened |
+| `Deepgram closed the connection during the handshake` | Server hung up before answering — network, proxy, or TLS interception |
+| `handshake recv error: ... (curl code N)` | The OBS libcurl refused the read; `socket=closed` means the connection was already gone |
 | `Deepgram WebSocket connected, language=...` | Stream is open |
 | `Deepgram first audio sent: N bytes` | Audio is actually flowing |
 | `Deepgram close: code=1011 reason=...` | The server closed it, with its reason |
@@ -164,6 +166,31 @@ The session-ended line localizes almost every caption problem:
 
 Audio totals count bytes the client wrote successfully. They prove the plugin
 sent audio, not that the server transcribed it.
+
+### The handshake fails on every attempt
+
+A log that repeats `Deepgram transport` → `Deepgram request` → a handshake error
+→ `audio_bytes_sent=0` every ten seconds never reached Deepgram at all. Work
+through it in this order:
+
+1. **Test the key and the network outside OBS.** This separates an account or
+   proxy problem from a plugin problem in one command:
+
+   ```bat
+   curl -v --http1.1 -H "Authorization: Token YOUR_KEY" https://api.deepgram.com/v1/projects
+   ```
+
+   Fails → the key, the network, or TLS interception on the machine. Succeeds →
+   continue.
+
+2. **Match the plugin package to your OBS version.** The plugin uses the
+   `libcurl` that ships with OBS, so a package built for one OBS release talks to
+   a different libcurl on another. OBS may load the plugin anyway; the mismatch
+   only shows up as curl errors at connection time.
+
+3. If both check out, send the log — the error line carries the curl code and
+   whether the socket was still open, which distinguishes a dropped connection
+   from curl rejecting the call.
 
 ### Captions recognized but not visible
 

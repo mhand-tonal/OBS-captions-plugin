@@ -78,8 +78,9 @@ The wire protocol is documented in [tools/PROTOCOL.md](./tools/PROTOCOL.md): the
 
 ### Installation (Windows):
 
-This fork's GitHub Actions builds provide separate `Windows-Plugin-OBS-30.2.3`
-and `Windows-Plugin-OBS-32.1.1` downloads. Choose the version shown in OBS under
+This fork's GitHub Actions builds provide separate `Windows-Plugin-OBS-30.2.3`,
+`Windows-Plugin-OBS-32.1.1` and `Windows-Plugin-OBS-32.2.2` downloads. Choose
+the version shown in OBS under
 **Help > About** and install only that variant. See [Windows builds](./BUILDING.md#windows)
 for build commands and package details, and
 [Windows troubleshooting](./WINDOWS_TROUBLESHOOTING.md) if the plugin does not

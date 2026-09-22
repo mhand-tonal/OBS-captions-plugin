@@ -7,11 +7,12 @@ from pathlib import Path
 
 from win_shared import check_call, download, unzip, spa
 
-DEFAULT_OBS_VERSION = "32.1.1"
+DEFAULT_OBS_VERSION = "32.2.2"
 # Match each OBS tag's buildspec.json (30.x) or CMakePresets.json (32.x).
 OBS_VERSIONS = {
 	"30.2.3": {"deps": "2024-05-08", "frontend_api": "UI/obs-frontend-api"},
 	"32.1.1": {"deps": "2025-08-23", "frontend_api": "frontend/api"},
+	"32.2.2": {"deps": "2026-07-15", "frontend_api": "frontend/api"},
 }
 
 CMAKE_VS_ARGS = ["-G", "Visual Studio 17 2022", "-A", "x64"]

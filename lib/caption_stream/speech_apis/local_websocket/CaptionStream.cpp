@@ -19,6 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <string>
 #include <sstream>
 #include <vector>
+#include <algorithm>
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
@@ -259,19 +260,32 @@ bool LocalWebSocketCaptionStream::ws_handshake() {
         auto remaining_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                 deadline - std::chrono::steady_clock::now()).count();
         if (remaining_ms <= 0) {
-            error_log("[LocalWS] WebSocket handshake timeout");
+            error_log("[LocalWS] WebSocket handshake timeout, %zu bytes received", response.size());
             return false;
         }
 
-        ws_poll_socket(sockfd, POLLIN, (int) std::min(remaining_ms, (long long) 1000));
-
+        // Read first, wait only after CURLE_AGAIN: see curl_easy_recv(3).
         char buf[4096];
         size_t nread = 0;
         CURLcode rc = curl_easy_recv(curl_handle, buf, sizeof(buf), &nread);
         if (rc == CURLE_OK && nread > 0) {
             response.append(buf, nread);
-        } else if (rc != CURLE_AGAIN) {
-            error_log("[LocalWS] handshake recv error: %s", curl_easy_strerror(rc));
+        } else if (rc == CURLE_AGAIN) {
+            ws_poll_socket(sockfd, POLLIN, (int) std::min<long long>(remaining_ms, 1000));
+        } else if (rc == CURLE_OK) {
+            // curl reports a clean EOF as CURLE_OK with zero bytes read.
+            string preview = response.substr(0, std::min<size_t>(response.size(), 200));
+            error_log("[LocalWS] server closed the connection during the handshake, "
+                      "%zu bytes received: %s",
+                      response.size(), preview.empty() ? "(nothing)" : preview.c_str());
+            return false;
+        } else {
+            curl_socket_t active = CURL_SOCKET_BAD;
+            CURLcode info_rc = curl_easy_getinfo(curl_handle, CURLINFO_ACTIVESOCKET, &active);
+            error_log("[LocalWS] handshake recv error: %s (curl code %d), %zu bytes received, "
+                      "handle=%p socket=%s",
+                      curl_easy_strerror(rc), (int) rc, response.size(), (void *) curl_handle,
+                      (info_rc == CURLE_OK && active != CURL_SOCKET_BAD) ? "open" : "closed");
             return false;
         }
     }

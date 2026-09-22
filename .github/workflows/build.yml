@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        obs-version: ["30.2.3", "32.1.1"]
+        obs-version: ["30.2.3", "32.1.1", "32.2.2"]
     steps:
       - uses: actions/checkout@v4
         with:

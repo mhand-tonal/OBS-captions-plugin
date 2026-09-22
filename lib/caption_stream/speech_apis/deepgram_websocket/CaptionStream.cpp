@@ -19,6 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <string>
 #include <sstream>
 #include <vector>
+#include <algorithm>
 #include <cstdlib>
 #include <ctime>
 
@@ -255,7 +256,9 @@ bool DeepgramCaptionStream::ws_handshake() {
         return false;
     }
 
-    // Read upgrade response
+    // Read upgrade response. Per curl_easy_recv(3), read first and only wait on
+    // the socket after CURLE_AGAIN: curl or the TLS backend can already hold
+    // decrypted bytes that never make the socket itself readable.
     string response;
     auto deadline = std::chrono::steady_clock::now()
                     + std::chrono::milliseconds(settings.recv_timeout_ms);
@@ -264,19 +267,35 @@ bool DeepgramCaptionStream::ws_handshake() {
         auto remaining_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                 deadline - std::chrono::steady_clock::now()).count();
         if (remaining_ms <= 0) {
-            error_log("WebSocket handshake timeout");
+            error_log("WebSocket handshake timeout, %zu bytes received", response.size());
             return false;
         }
-
-        ws_poll_socket(sockfd, POLLIN, (int) std::min(remaining_ms, (long long) 1000));
 
         char buf[4096];
         size_t nread = 0;
         CURLcode rc = curl_easy_recv(curl_handle, buf, sizeof(buf), &nread);
         if (rc == CURLE_OK && nread > 0) {
             response.append(buf, nread);
-        } else if (rc != CURLE_AGAIN) {
-            error_log("handshake recv error: %s", curl_easy_strerror(rc));
+        } else if (rc == CURLE_AGAIN) {
+            // remaining_ms is chrono's rep, which is long on some platforms and
+            // long long on others, so pin the type rather than deducing it.
+            ws_poll_socket(sockfd, POLLIN, (int) std::min<long long>(remaining_ms, 1000));
+        } else if (rc == CURLE_OK) {
+            // curl reports a clean EOF as CURLE_OK with zero bytes read, so this
+            // is the server hanging up rather than an error.
+            string preview = response.substr(0, std::min<size_t>(response.size(), 200));
+            error_log("Deepgram closed the connection during the handshake, %zu bytes received: %s",
+                      response.size(), preview.empty() ? "(nothing)" : preview.c_str());
+            return false;
+        } else {
+            // Report enough to tell a dropped connection apart from curl
+            // rejecting the call itself.
+            curl_socket_t active = CURL_SOCKET_BAD;
+            CURLcode info_rc = curl_easy_getinfo(curl_handle, CURLINFO_ACTIVESOCKET, &active);
+            error_log("handshake recv error: %s (curl code %d), %zu bytes received, "
+                      "handle=%p socket=%s",
+                      curl_easy_strerror(rc), (int) rc, response.size(), (void *) curl_handle,
+                      (info_rc == CURLE_OK && active != CURL_SOCKET_BAD) ? "open" : "closed");
             return false;
         }
     }
