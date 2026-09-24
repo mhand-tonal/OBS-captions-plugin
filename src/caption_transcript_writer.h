@@ -8,6 +8,7 @@
 
 #include "log.c"
 #include <QDir>
+#include <ctime>
 #include <iomanip>
 #include <iostream>
 #include <fstream>
@@ -125,6 +126,19 @@ QFileInfo find_transcript_filename_custom(const UseTranscriptSettings &rel,
     throw string("custom transcript file exists already, invalid exists option: " + rel.filename_custom_exists);
 }
 
+string local_datetime_string(const std::chrono::system_clock::time_point &tp) {
+    time_t tp_t = std::chrono::system_clock::to_time_t(tp);
+    std::tm tm_buf{};
+#ifdef _WIN32
+    localtime_s(&tm_buf, &tp_t);
+#else
+    localtime_r(&tp_t, &tm_buf);
+#endif
+    std::ostringstream oss;
+    oss << std::put_time(&tm_buf, "%Y-%m-%d_%H-%M-%S");
+    return oss.str();
+}
+
 QFileInfo find_transcript_filename_datetime(const UseTranscriptSettings &rel,
                                             const QFileInfo &output_directory,
                                             const std::chrono::system_clock::time_point &started_at,
@@ -132,13 +146,7 @@ QFileInfo find_transcript_filename_datetime(const UseTranscriptSettings &rel,
                                             const string &extension) {
     // "[streaming|recording]_transcript_2020-08-01_00-00-00[_cnt].[ext]"
 
-    std::ostringstream oss;
-    time_t started_at_t = std::chrono::system_clock::to_time_t(started_at);
-    oss << std::put_time(std::localtime(&started_at_t), "%Y-%m-%d_%H-%M-%S");
-    auto started_at_str = oss.str();
-
-
-    string basename = rel.file_basename + started_at_str;
+    string basename = rel.file_basename + local_datetime_string(started_at);
     return find_unused_filename(output_directory, QString::fromStdString(basename), QString::fromStdString(extension), tries);
 }
 
@@ -530,18 +538,22 @@ void add_result(SrtState &settings, ResultQueue &results, shared_ptr<OutputCapti
 //    }
 }
 
+// blocks & waits unless stopped then just drains what's left if any
+template<typename T>
+bool dequeue_caption_output(CaptionOutputControl<T> &control, CaptionOutput &out) {
+    if (control.stop)
+        return control.caption_queue.try_dequeue(out);
+    control.caption_queue.wait_dequeue(out);
+    return true;
+}
+
 void write_loop_srt(SrtState &settings, std::fstream &fs,
                     shared_ptr<CaptionOutputControl<TranscriptOutputSettings>> control) {
     std::shared_ptr<OutputCaptionResult> held_nonfinal_result;
     CaptionOutput caption_output;
     ResultQueue results;
 
-    while (!control->stop) {
-        control->caption_queue.wait_dequeue(caption_output);
-
-        if (control->stop)
-            break;
-
+    while (dequeue_caption_output(*control, caption_output)) {
         if (!caption_output.output_result || caption_output.is_clearance) {
             continue;
         }
@@ -612,12 +624,7 @@ void write_loop_txt(SrtState &settings, std::fstream &fs, const std::chrono::ste
     CaptionOutput caption_output;
     const string prefix(add_spacer ? "    " : "");
 
-    while (!control->stop) {
-        control->caption_queue.wait_dequeue(caption_output);
-
-        if (control->stop)
-            break;
-
+    while (dequeue_caption_output(*control, caption_output)) {
         if (!caption_output.output_result || caption_output.is_clearance) {
 //            debug_log("got empty CaptionOutput.output_result???");
             continue;
@@ -657,12 +664,7 @@ void write_loop_txt(SrtState &settings, std::fstream &fs, const std::chrono::ste
 void write_loop_raw(std::fstream &fs, const std::chrono::steady_clock::time_point &started_at_steady, bool write_realtime,
                     shared_ptr<CaptionOutputControl<TranscriptOutputSettings>> control) {
     CaptionOutput caption_output;
-    while (!control->stop) {
-        control->caption_queue.wait_dequeue(caption_output);
-
-        if (control->stop)
-            break;
-
+    while (dequeue_caption_output(*control, caption_output)) {
         if (!caption_output.output_result || caption_output.is_clearance) {
 //            info_log("got empty CaptionOutput.output_result???");
             continue;
@@ -689,8 +691,8 @@ void write_loop_raw(std::fstream &fs, const std::chrono::steady_clock::time_poin
     }
 }
 
-void transcript_writer_loop(shared_ptr<CaptionOutputControl<TranscriptOutputSettings>> control,
-                            const string target_name, const TranscriptOutputSettings transcript_settings) {
+void transcript_writer_loop_inner(shared_ptr<CaptionOutputControl<TranscriptOutputSettings>> control,
+                                  const string target_name, const TranscriptOutputSettings transcript_settings) {
     const string format = transcript_settings.format;
     auto started_at_sys = std::chrono::system_clock::now();
     auto started_at_steady = std::chrono::steady_clock::now();
@@ -788,8 +790,15 @@ void transcript_writer_loop(shared_ptr<CaptionOutputControl<TranscriptOutputSett
     info_log("transcript_writer_loop %s done", to_what.c_str());
 }
 
+void transcript_writer_loop(shared_ptr<CaptionOutputControl<TranscriptOutputSettings>> control,
+                            const string target_name, const TranscriptOutputSettings transcript_settings) {
+    transcript_writer_loop_inner(control, target_name, transcript_settings);
+    // so nothing else gets queued after this
+    control->stop = true;
+}
 
-void fileoutput_writer_loop(shared_ptr<CaptionOutputControl<FileOutputSettings>> control, const FileOutputSettings output_settings) {
+
+void fileoutput_writer_loop_inner(shared_ptr<CaptionOutputControl<FileOutputSettings>> control, const FileOutputSettings output_settings) {
     info_log("fileoutput_writer_loop starting");
 
     QFileInfo output_directory(QString::fromStdString(control->arg.output_folder));
@@ -822,14 +831,24 @@ void fileoutput_writer_loop(shared_ptr<CaptionOutputControl<FileOutputSettings>>
     }
 
     CaptionOutput caption_output;
-    while (!control->stop) {
-        control->caption_queue.wait_dequeue(caption_output);
-
-        if (control->stop)
-            break;
-
-        if (!caption_output.output_result)
-            continue;
+    while (true) {
+        if (control->stop) {
+            // drain to the last real item so the file ends up with the newest line, written once
+            CaptionOutput next;
+            bool have_item = false;
+            while (control->caption_queue.try_dequeue(next)) {
+                if (next.output_result) {
+                    caption_output = next;
+                    have_item = true;
+                }
+            }
+            if (!have_item)
+                break;
+        } else {
+            control->caption_queue.wait_dequeue(caption_output);
+            if (!caption_output.output_result)
+                continue;
+        }
 
         try {
             std::fstream fs;
@@ -856,6 +875,11 @@ void fileoutput_writer_loop(shared_ptr<CaptionOutputControl<FileOutputSettings>>
 
     info_log("fileoutput_writer_loop done");
 
+}
+
+void fileoutput_writer_loop(shared_ptr<CaptionOutputControl<FileOutputSettings>> control, const FileOutputSettings output_settings) {
+    fileoutput_writer_loop_inner(control, output_settings);
+    control->stop = true;
 }
 
 #endif //OBS_GOOGLE_CAPTION_PLUGIN_CAPTION_TRANSCRIPT_WRITER_H

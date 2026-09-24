@@ -1,0 +1,83 @@
+name: Build Plugin
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      windows_only:
+        description: Build only the Windows packages
+        type: boolean
+        default: false
+
+jobs:
+  build-windows:
+    name: Windows (OBS ${{ matrix.obs-version }})
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        obs-version: ["30.2.3", "32.1.1", "32.2.2"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache OBS Studio
+        uses: actions/cache@v4
+        with:
+          path: CI/http/CI_build/build_deps/obs-studio/${{ matrix.obs-version }}
+          key: obs-studio-${{ matrix.obs-version }}-windows-${{ hashFiles('CI/win_build_obs.py') }}
+
+      - name: Cache plibsys
+        uses: actions/cache@v4
+        with:
+          path: CI/http/CI_build/plibsys
+          key: plibsys-windows
+
+      - name: Build
+        working-directory: CI/http
+        shell: cmd
+        run: python win_install_script.py --obs-version ${{ matrix.obs-version }}
+
+      - name: Check DLL loads with the official OBS runtime
+        run: >-
+          python CI/check_windows_load.py
+          --obs-version ${{ matrix.obs-version }}
+          --plugin CI/http/CI_build/installed/${{ matrix.obs-version }}/lib/obs_google_caption_plugin.dll
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-Plugin-OBS-${{ matrix.obs-version }}
+          if-no-files-found: error
+          path: |
+            CI/http/CI_build/release/*.zip
+            CI/http/CI_build/release/*.exe
+
+  build-macos:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.windows_only }}
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache OBS Studio
+        uses: actions/cache@v4
+        with:
+          path: CI/http/CI_build/build_deps/obs-studio
+          key: obs-studio-32.1.1-macos-${{ hashFiles('CI/osx_build_obs.sh') }}
+
+      - name: Build
+        working-directory: CI/http
+        run: bash osx_install_script.sh
+        env:
+          CLEAN_OBS: "1"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacOS-Plugin
+          path: CI/http/CI_build/release/*.zip

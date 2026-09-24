@@ -1,0 +1,4 @@
+useful-moonshine-onnx
+websockets>=10
+numpy
+tokenizers

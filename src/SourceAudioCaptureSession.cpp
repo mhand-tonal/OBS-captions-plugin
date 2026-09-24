@@ -32,6 +32,12 @@ static void state_changed_fwder(void *param, calldata_t *calldata) {
         session->state_changed_check();
 }
 
+static void source_removed_fwder(void *param, calldata_t *calldata) {
+    auto session = reinterpret_cast<SourceAudioCaptureSession *>(param);
+    if (session)
+        session->source_removed_check();
+}
+
 
 SourceAudioCaptureSession::SourceAudioCaptureSession(
         obs_source_t *audio_source_arg,
@@ -111,15 +117,22 @@ SourceAudioCaptureSession::SourceAudioCaptureSession(
     signal_handler_connect(obs_source_get_signal_handler(muting_source), "activate", state_changed_fwder, this);
     signal_handler_connect(obs_source_get_signal_handler(muting_source), "deactivate", state_changed_fwder, this);
 
+    // signal_handler_connect dedupes, so is fine
+    signal_handler_connect(obs_source_get_signal_handler(audio_source), "remove", source_removed_fwder, this);
+    signal_handler_connect(obs_source_get_signal_handler(muting_source), "remove", source_removed_fwder, this);
+
+    {
+        std::lock_guard<std::mutex> lock(status_mutex);
+        capture_status = check_source_status();
+    }
     obs_source_add_audio_capture_callback(audio_source, audio_captured, this);
 
-//    const bool do_capture = should_send_data();
-    capture_status = check_source_status();
     if (send_startup_change_signal)
         state_changed_check(true);
 }
 
 void SourceAudioCaptureSession::state_changed_check(bool always_signal) {
+    std::lock_guard<std::mutex> lock(status_mutex);
     audio_source_capture_status new_status = check_source_status();
     if (!always_signal && new_status == capture_status)
         return;
@@ -141,7 +154,19 @@ void SourceAudioCaptureSession::state_changed_check(bool always_signal) {
 }
 
 
+void SourceAudioCaptureSession::source_removed_check() {
+    source_removed = true;
+    state_changed_check(true);
+}
+
+bool SourceAudioCaptureSession::is_source_removed() const {
+    return source_removed;
+}
+
 audio_source_capture_status SourceAudioCaptureSession::check_source_status() {
+    if (source_removed)
+        return AUDIO_SOURCE_NOT_STREAMED;
+
     const bool is_muted = obs_source_muted(muting_source);
     const bool is_active = obs_source_active(muting_source);
     const bool is_showing = obs_source_showing(muting_source);
@@ -243,6 +268,9 @@ SourceAudioCaptureSession::~SourceAudioCaptureSession() {
 
     signal_handler_disconnect(obs_source_get_signal_handler(muting_source), "activate", state_changed_fwder, this);
     signal_handler_disconnect(obs_source_get_signal_handler(muting_source), "deactivate", state_changed_fwder, this);
+
+    signal_handler_disconnect(obs_source_get_signal_handler(audio_source), "remove", source_removed_fwder, this);
+    signal_handler_disconnect(obs_source_get_signal_handler(muting_source), "remove", source_removed_fwder, this);
 
     audio_resampler_destroy(resampler);
 

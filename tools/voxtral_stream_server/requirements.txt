@@ -1,0 +1,3 @@
+mlx-audio
+websockets>=10
+numpy

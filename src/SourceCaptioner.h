@@ -21,7 +21,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define OBS_STUDIO_SOURCECAPTIONER_H
 
 
+#include <atomic>
 #include <ContinuousCaptions.h>
+#include <cameron314/blockingconcurrentqueue.h>
+#include <deque>
 #include "SourceAudioCaptureSession.h"
 #include "OutputAudioCaptureSession.h"
 #include "CaptionResultHandler.h"
@@ -421,7 +424,7 @@ struct CaptionOutput {
 template<typename T>
 struct CaptionOutputControl {
     moodycamel::BlockingConcurrentQueue<CaptionOutput> caption_queue;
-    volatile bool stop = false;
+    std::atomic<bool> stop{false};
     T arg;
 
     CaptionOutputControl(T arg) : arg(arg) {}
@@ -511,6 +514,7 @@ Q_OBJECT
     std::chrono::steady_clock::time_point last_caption_at;
     bool last_caption_cleared;
     QTimer timer;
+    QTimer word_reveal_timer;
 
     std::vector<std::shared_ptr<OutputCaptionResult>> results_history; // final ones + last ones before interruptions
     std::shared_ptr<OutputCaptionResult> held_nonfinal_caption_result;
@@ -529,6 +533,42 @@ Q_OBJECT
 
     string last_caption_text;
     bool last_caption_final = false;
+    std::chrono::steady_clock::time_point last_stream_caption_sent_at;
+
+    int append_only_last_result_index = -1;
+    std::chrono::steady_clock::time_point append_only_last_result_started_at;
+    string append_only_sent_text;
+
+    std::vector<string> growing_committed_lines;
+    string growing_current_line;
+
+    std::deque<string> word_reveal_queue;
+
+    // Append-only word tracking per segment for word-reveal modes
+    int segment_committed_words = 0;
+    int segment_index = -1;
+    std::chrono::steady_clock::time_point segment_started_at;
+
+    // Hold interims briefly to let ASR revise before emitting
+    bool lowlatency_buffering = false;
+    std::chrono::steady_clock::time_point lowlatency_buffer_start;
+
+    // Hold a full subtitle-box card on screen before clearing
+    bool card_dwelling = false;
+    std::chrono::steady_clock::time_point card_dwell_start;
+
+    // Buffer words so the ASR can revise within delay_secs before committing
+    string segment_buffered_text;
+    int segment_buffered_count = 0;
+    std::chrono::steady_clock::time_point segment_buffer_start;
+
+    bool should_skip_nonfinal_for_debounce(const CaptionResult &cr,
+                                           std::chrono::steady_clock::time_point now) const;
+    bool should_skip_nonfinal_for_stability(const CaptionResult &cr) const;
+    string compute_append_delta(const CaptionResult &cr, const string &current_text);
+    void reset_caption_mode_state();
+    shared_ptr<OutputCaptionResult> build_word_reveal_display(
+            const CaptionResult &cr, bool interrupted, uint line_count, bool is_subtitle_box);
 
     void caption_was_output();
 
@@ -564,6 +604,8 @@ private slots:
 
     void clear_output_timer_cb();
 
+    void word_reveal_timer_cb();
+
 //    void send_caption_text(const string text, int send_in_secs);
 
 signals:
@@ -576,6 +618,8 @@ signals:
             string recent_caption_text);
 
     void audio_capture_status_changed(const int id, const int new_status);
+
+    void caption_source_removed();
 
     void source_capture_status_changed(shared_ptr<SourceCaptionerStatus> status);
 

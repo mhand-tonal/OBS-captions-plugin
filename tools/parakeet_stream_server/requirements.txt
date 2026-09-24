@@ -1,0 +1,3 @@
+parakeet-mlx
+websockets>=10
+numpy

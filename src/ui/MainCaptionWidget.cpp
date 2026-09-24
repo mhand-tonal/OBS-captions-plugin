@@ -97,10 +97,10 @@ void MainCaptionWidget::update_caption_text_ui() {
     }
 
     this->captionHistoryPlainTextEdit->setPlainText(latest_caption_text_history.c_str());
-//    QTextCursor cursor1 = this->captionHistoryPlainTextEdit->textCursor();
-//    cursor1.atEnd();
-//    this->captionHistoryPlainTextEdit->setTextCursor(cursor1);
-//    this->captionHistoryPlainTextEdit->ensureCursorVisible();
+    QTextCursor cursor = this->captionHistoryPlainTextEdit->textCursor();
+    cursor.movePosition(QTextCursor::End);
+    this->captionHistoryPlainTextEdit->setTextCursor(cursor);
+    this->captionHistoryPlainTextEdit->ensureCursorVisible();
 
 }
 
@@ -178,7 +178,7 @@ void MainCaptionWidget::virtualcam_stopped_event() {
 }
 
 void MainCaptionWidget::stop_captioning() {
-    plugin_manager.source_captioner.stop_caption_stream(false);
+    plugin_manager.stop_captioning();
 }
 
 void MainCaptionWidget::handle_source_capture_status_change(shared_ptr<SourceCaptionerStatus> status) {
