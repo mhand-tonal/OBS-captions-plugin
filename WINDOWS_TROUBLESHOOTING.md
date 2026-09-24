@@ -151,6 +151,7 @@ wrong OBS version. The collector's load test reports the exact API versions.
 | `WebSocket upgrade failed: <status>` | Rejected before the stream opened |
 | `Deepgram closed the connection during the handshake` | Server hung up before answering — network, proxy, or TLS interception |
 | `handshake recv error: ... (curl code N)` | The OBS libcurl refused the read; `socket=closed` means the connection was already gone |
+| `handshake recv error: A libcurl function was given a bad argument (curl code 43)` | Builds before the TLS session-cache fix: Schannel could not store the server's TLS 1.3 session ticket. Update the plugin |
 | `Deepgram WebSocket connected, language=...` | Stream is open |
 | `Deepgram first audio sent: N bytes` | Audio is actually flowing |
 | `Deepgram close: code=1011 reason=...` | The server closed it, with its reason |

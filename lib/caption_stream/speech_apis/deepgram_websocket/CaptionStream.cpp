@@ -100,6 +100,13 @@ bool DeepgramCaptionStream::curl_connect() {
     // Force HTTP/1.1 ALPN — without this, curl may negotiate HTTP/2 during TLS,
     // and the server will reject our raw HTTP/1.1 WebSocket upgrade request.
     curl_easy_setopt(curl_handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+    // The TLS session cache belongs to the multi handle that curl_easy_perform
+    // uses internally, and perform detaches from it on return. Schannel reports
+    // a TLS 1.3 session ticket arriving after the handshake as a renegotiation,
+    // and storing that session with no cache fails the next curl_easy_recv with
+    // CURLE_BAD_FUNCTION_ARGUMENT. CONNECT_ONLY connections are never reused, so
+    // there is nothing to cache.
+    curl_easy_setopt(curl_handle, CURLOPT_SSL_SESSIONID_CACHE, 0L);
 
     CURLcode res = curl_easy_perform(curl_handle);
     if (res != CURLE_OK) {
